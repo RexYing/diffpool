@@ -3,6 +3,7 @@ import numpy as np
 import random
 
 import featgen
+import util
 
 def gen_ba(n_range, m_range, num_graphs, feature_generator=None):
     graphs = []
@@ -14,6 +15,7 @@ def gen_ba(n_range, m_range, num_graphs, feature_generator=None):
         feature_generator = UniformFeatureGen(0)
     for G in graphs:
         feature_generator.gen_node_features(G)
+    util.draw_graph_list(G[:16], 4, 4, 'figs/ba')
     return graphs
 
 def gen_2community_ba(n_range, m_range, num_graphs, inter_prob):
@@ -44,4 +46,5 @@ def gen_2community_ba(n_range, m_range, num_graphs, inter_prob):
             if np.random() < inter_prob:
                 target = np.random.choice(G.number_of_nodes() - n0) + n0
                 G.add_edge(i, target)
+    return graphs
 
