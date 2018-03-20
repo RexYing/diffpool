@@ -5,39 +5,19 @@ from torch.autograd import Variable
 import numpy as np
 import time
 
+import encoders
 import gen.feat as featgen
 import gen.data as datagen
 import util
 
-#class ClassifyGraphs():
 
-def synthetic_task_train(graphs, same_feat=True):
-    feat_data, labels, adj_lists = load_cora()
-    if same_feat:
-        feat_data = graphs[0].node[0]['feat']
-        feat_dim = feat_data.shape[0]
-        features = nn.Embedding(feat_dim)
-        features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=True)
-        # features.cuda()
+def synthetic_task_train(dataset, args, same_feat=True):
 
-    agg1 = MeanAggregator(features, cuda=True)
-    enc1 = Encoder(features, 1433, 128, adj_lists, agg1, gcn=True, cuda=False)
-    agg2 = MeanAggregator(lambda nodes : enc1(nodes).t(), cuda=False)
-    enc2 = Encoder(lambda nodes : enc1(nodes).t(), enc1.embed_dim, 128, adj_lists, agg2,
-            base_model=enc1, gcn=True, cuda=False)
-    enc1.num_samples = 5
-    enc2.num_samples = 5
-
-    graphsage = SupervisedGraphSage(7, enc2)
-#    graphsage.cuda()
-    rand_indices = np.random.permutation(num_nodes)
-    test = rand_indices[:1000]
-    val = rand_indices[1000:1500]
-    train = list(rand_indices[1500:])
-
-    optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, graphsage.parameters()), lr=0.7)
+    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2)
+    
+    optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     times = []
-    for batch in range(100):
+    for batch_idx, data in enumerate(data):
         batch_nodes = train[:256]
         random.shuffle(train)
         start_time = time.time()
@@ -48,34 +28,78 @@ def synthetic_task_train(graphs, same_feat=True):
         optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        print batch, loss.data[0]
+        print(batch, loss.data[0])
 
     val_output = graphsage.forward(val) 
-    print "Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1), average="micro")
-    print "Average batch time:", np.mean(times)
+    print("Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1),
+        average="micro"))
+    print("Average batch time:", np.mean(times))
 
 
-def synthetic_task1(input_feat_dim=10):
+def synthetic_task1(args):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 20, 
-                             featgen.ConstFeatureGen(np.ones(input_feat_dim)))
+                             featgen.ConstFeatureGen(np.ones(args.input_dim)))
     for G in graphs1:
         G.graph['label'] = 0
     util.draw_graph_list(graphs1[:16], 4, 4, 'figs/ba')
 
     graphs2 = datagen.gen_2community_ba(range(20, 30), range(4, 5), 20, 0.3, 
-                                        [featgen.ConstFeatureGen(np.ones(input_feat_dim))])
+                                        [featgen.ConstFeatureGen(np.ones(args.input_dim))])
     for G in graphs2:
         G.graph['label'] = 1
     util.draw_graph_list(graphs2[:16], 4, 4, 'figs/ba2')
 
     graphs = graphs1 + graphs2
-    synthetic_task_train(graphs)
+
+    # minibatch
+    dataset_sampler = GraphSampler(graphs)
+    dataset_loader = torch.utils.data.DataLoader(
+            dataset_sampler, 
+            batch_size=args.batch_size, 
+            num_workers=args.num_workers)
+    #synthetic_task_train(dataset, args)
     
+def arg_parse():
+    parser = argparse.ArgumentParser(description='GraphPool arguments.')
+    io_parser = parser.add_mutually_exclusive_group(required=False)
+    io_parser.add_argument('--dataset', dest='dataset', 
+            help='Input dataset.')
+
+    parser.add_argument('--lr', dest='lr', type=float,
+            help='Learning rate.')
+    parser.add_argument('--batch_size', dest='batch_size', type=int,
+            help='Batch size.')
+    parser.add_argument('--num_workers', dest='num_workers', type=int,
+            help='Number of workers to load data.')
+    parser.add_argument('--feature', dest='feature_type',
+            help='Feature used for encoder. Can be: id, deg')
+    parser.add_argument('--input_dim', dest='input_dim', type=int,
+            help='Input feature dimension')
+    parser.add_argument('--hidden_dim', dest='hidden_dim', type=int,
+            help='Hidden dimension')
+    parser.add_argument('--output_dim', dest='output_dim', type=int,
+            help='Output dimension')
+
+    parser.set_defaults(dataset='',
+                        feature_type='default',
+                        lr=0.001,
+                        batch_size=2,
+                        num_workers=1,
+                        input_dim=10,
+                        hidden_dim=20,
+                        output_dim=30,
+                       )
+    return parser.parse_args()
 
 def main():
-    synthetic_task1()
+    prog_args = arg_parse()
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA)
+    print('CUDA', CUDA)
+
+    synthetic_task1(args)
 
 if __name__ == "__main__":
     main()
