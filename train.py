@@ -5,6 +5,7 @@ from torch.autograd import Variable
 import argparse
 import numpy as np
 import os
+import random
 import time
 
 import encoders
@@ -30,11 +31,11 @@ def synthetic_task_train(dataset, args, same_feat=True):
         ypred = model(h0, adj)
         loss = model.loss(ypred, label)
         print(loss)
-        #loss.backward()
-        #optimizer.step()
+        loss.backward()
+        optimizer.step()
         end_time = time.time()
         times.append(end_time-start_time)
-        #print(batch, loss.data[0])
+        print('Iter: ', batch_idx, ', loss: ', loss.data[0])
 
     #print("Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1),
     #    average="micro"))
@@ -44,14 +45,14 @@ def synthetic_task_train(dataset, args, same_feat=True):
 def synthetic_task1(args, export_graphs=False):
 
     # data
-    graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 20, 
+    graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
                              featgen.ConstFeatureGen(np.ones(args.input_dim)))
     for G in graphs1:
         G.graph['label'] = 0
     if export_graphs:
         util.draw_graph_list(graphs1[:16], 4, 4, 'figs/ba')
 
-    graphs2 = datagen.gen_2community_ba(range(20, 30), range(4, 5), 20, 0.3, 
+    graphs2 = datagen.gen_2community_ba(range(20, 30), range(4, 5), 500, 0.3, 
                                         [featgen.ConstFeatureGen(np.ones(args.input_dim))])
     for G in graphs2:
         G.graph['label'] = 1
@@ -59,12 +60,15 @@ def synthetic_task1(args, export_graphs=False):
         util.draw_graph_list(graphs2[:16], 4, 4, 'figs/ba2')
 
     graphs = graphs1 + graphs2
+    random.shuffle(graphs)
+    print(len(graphs))
 
     # minibatch
     dataset_sampler = GraphSampler(graphs)
     dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
+            shuffle=True,
             num_workers=args.num_workers)
     synthetic_task_train(dataset_loader, args)
     
