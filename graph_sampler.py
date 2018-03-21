@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import torch
+import torch.utils.data
 
 class GraphSampler(torch.utils.data.Dataset):
     ''' Sample graphs and nodes in graph
@@ -9,6 +10,7 @@ class GraphSampler(torch.utils.data.Dataset):
         self.adj_all = []
         self.len_all = []
         self.feature_all = []
+        self.label_all = []
 
         self.max_num_nodes = max([G.number_of_nodes() for G in G_list])
 
@@ -19,8 +21,9 @@ class GraphSampler(torch.utils.data.Dataset):
         for G in G_list:
             self.adj_all.append(nx.to_numpy_matrix(G))
             self.len_all.append(G.number_of_nodes())
+            self.label_all.append(G.graph['label'])
             if features == 'default':
-                f = np.zeros(self.max_num_nodes, self.feat_dim)
+                f = np.zeros((self.max_num_nodes, self.feat_dim))
                 for i,u in enumerate(G.nodes()):
                     f[i,:] = G.node[u]['feat']
                 self.feature_all.append(f)
@@ -55,5 +58,6 @@ class GraphSampler(torch.utils.data.Dataset):
         # use all nodes for aggregation (baseline)
 
         return {'adj':adj_padded,
-                'features':self.feature_all[idx].copy()}
+                'feats':self.feature_all[idx].copy(),
+                'label':self.label_all[idx]}
 
