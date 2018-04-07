@@ -14,6 +14,7 @@ import gen.data as datagen
 from graph_sampler import GraphSampler
 import util
 
+def synthetic_task_test(dataset, args):
 
 def synthetic_task_train(dataset, args, same_feat=True):
 
