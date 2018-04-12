@@ -16,7 +16,6 @@ class GraphSampler(torch.utils.data.Dataset):
 
         if features == 'default':
             self.feat_dim = G_list[0].node[0]['feat'].shape[0]
-            print('Feat dim: ', self.feat_dim)
 
         for G in G_list:
             self.adj_all.append(nx.to_numpy_matrix(G))

@@ -45,6 +45,7 @@ class GcnEncoderGraph(nn.Module):
                 # init_range = np.sqrt(6.0 / (m.input_dim + m.output_dim))
                 # m.weight.data = torch.rand([m.input_dim, m.output_dim]).cuda()*init_range
                 # print('find!')
+                
     def forward(self, x, adj):
         x = self.conv_first(x, adj)
         x = self.act(x)

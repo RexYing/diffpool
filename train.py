@@ -4,6 +4,7 @@ from torch.autograd import Variable
 
 import argparse
 import numpy as np
+from sklearn.metrics import f1_score
 import os
 import random
 import time
@@ -14,34 +15,52 @@ import gen.data as datagen
 from graph_sampler import GraphSampler
 import util
 
-def synthetic_task_test(dataset, args):
+def synthetic_task_test(dataset, model, args):
+    model.eval()
 
-def synthetic_task_train(dataset, args, same_feat=True):
+    labels = []
+    preds = []
+    for batch_idx, data in enumerate(dataset):
+        adj = Variable(data['adj'].float(), requires_grad=False).cuda()
+        h0 = Variable(data['feats'].float()).cuda()
 
-    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
+        labels.append(data['label'].long().numpy())
+        ypred = model(h0, adj)
+        _, indices = torch.max(ypred, 1)
+        preds.append(indices.cpu().data.numpy())
+
+    labels = np.hstack(labels)
+    preds = np.hstack(preds)
+        
+    print("Validation F1:", f1_score(labels, preds, average="micro"))
+
+def synthetic_task_train(dataset, model, args, same_feat=True):
     model.train()
     
     optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     times = []
-    for batch_idx, data in enumerate(dataset):
-        model.zero_grad()
-        adj = Variable(data['adj'].float(), requires_grad=False).cuda()
-        h0 = Variable(data['feats'].float()).cuda()
-        label = Variable(data['label'].long()).cuda()
-        start_time = time.time()
-        ypred = model(h0, adj)
-        loss = model.loss(ypred, label)
-        print(loss)
-        loss.backward()
-        optimizer.step()
-        end_time = time.time()
-        times.append(end_time-start_time)
-        print('Iter: ', batch_idx, ', loss: ', loss.data[0])
+    iter = 0
+    for epoch in range(args.num_epochs):
+        print('Epoch: ', epoch)
+        for batch_idx, data in enumerate(dataset):
+            model.zero_grad()
+            adj = Variable(data['adj'].float(), requires_grad=False).cuda()
+            h0 = Variable(data['feats'].float()).cuda()
+            label = Variable(data['label'].long()).cuda()
+            start_time = time.time()
+            ypred = model(h0, adj)
+            loss = model.loss(ypred, label)
+            loss.backward()
+            optimizer.step()
+            end_time = time.time()
+            times.append(end_time-start_time)
+            iter += 1
+            if iter % 5 == 0:
+                print('Iter: ', iter, ', loss: ', loss.data[0])
 
-    #print("Validation F1:", f1_score(labels[val], val_output.data.numpy().argmax(axis=1),
-    #    average="micro"))
-    #print("Average batch time:", np.mean(times))
+    print("Average batch time:", np.mean(times))
 
+    return model
 
 def synthetic_task1(args, export_graphs=False):
 
@@ -62,16 +81,31 @@ def synthetic_task1(args, export_graphs=False):
 
     graphs = graphs1 + graphs2
     random.shuffle(graphs)
-    print(len(graphs))
+
+    train_idx = int(len(graphs) * 0.8)
+    train_graphs = graphs[:train_idx]
+    test_graphs = graphs[train_idx:]
+    print('Num training graphs: ', len(train_graphs), 
+          '; Num testing graphs: ', len(test_graphs))
 
     # minibatch
-    dataset_sampler = GraphSampler(graphs)
+    dataset_sampler = GraphSampler(train_graphs)
     dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=True,
             num_workers=args.num_workers)
-    synthetic_task_train(dataset_loader, args)
+
+    dataset_sampler = GraphSampler(test_graphs)
+    dataset_loader = torch.utils.data.DataLoader(
+            dataset_sampler, 
+            batch_size=args.batch_size, 
+            shuffle=False,
+            num_workers=args.num_workers)
+
+    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
+    synthetic_task_train(dataset_loader, model, args)
+    synthetic_task_test(dataset_loader, model, args)
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
@@ -85,6 +119,8 @@ def arg_parse():
             help='Learning rate.')
     parser.add_argument('--batch_size', dest='batch_size', type=int,
             help='Batch size.')
+    parser.add_argument('--epochs', dest='num_epochs', type=int,
+            help='Number of epochs to train.')
     parser.add_argument('--num_workers', dest='num_workers', type=int,
             help='Number of workers to load data.')
     parser.add_argument('--feature', dest='feature_type',
@@ -100,6 +136,7 @@ def arg_parse():
                         feature_type='default',
                         lr=0.001,
                         batch_size=10,
+                        num_epochs=5,
                         num_workers=1,
                         input_dim=10,
                         hidden_dim=20,
