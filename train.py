@@ -4,7 +4,7 @@ from torch.autograd import Variable
 
 import argparse
 import numpy as np
-from sklearn.metrics import f1_score
+import sklearn.metrics as metrics
 import os
 import random
 import time
@@ -31,13 +31,17 @@ def synthetic_task_test(dataset, model, args):
 
     labels = np.hstack(labels)
     preds = np.hstack(preds)
-        
-    print("Validation F1:", f1_score(labels, preds, average="micro"))
+    
+    print("Validation F1:", metrics.f1_score(labels, preds, average="micro"))
+    print(labels)
+    print(preds)
+    print("Validation prec:", metrics.precision_score(labels, preds))
+    print("Validation recall:", metrics.recall_score(labels, preds))
 
 def synthetic_task_train(dataset, model, args, same_feat=True):
     model.train()
     
-    optimizer = torch.optim.SGD(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
+    optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     times = []
     iter = 0
     for epoch in range(args.num_epochs):
@@ -45,7 +49,7 @@ def synthetic_task_train(dataset, model, args, same_feat=True):
         for batch_idx, data in enumerate(dataset):
             model.zero_grad()
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
-            h0 = Variable(data['feats'].float()).cuda()
+            h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
             start_time = time.time()
             ypred = model(h0, adj)
@@ -66,14 +70,14 @@ def synthetic_task1(args, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
-                             featgen.ConstFeatureGen(np.ones(args.input_dim)))
+            featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float) *0.5))
     for G in graphs1:
         G.graph['label'] = 0
     if export_graphs:
         util.draw_graph_list(graphs1[:16], 4, 4, 'figs/ba')
 
     graphs2 = datagen.gen_2community_ba(range(20, 30), range(4, 5), 500, 0.3, 
-                                        [featgen.ConstFeatureGen(np.ones(args.input_dim))])
+            [featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float)*0.5)])
     for G in graphs2:
         G.graph['label'] = 1
     if export_graphs:

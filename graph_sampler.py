@@ -22,7 +22,7 @@ class GraphSampler(torch.utils.data.Dataset):
             self.len_all.append(G.number_of_nodes())
             self.label_all.append(G.graph['label'])
             if features == 'default':
-                f = np.zeros((self.max_num_nodes, self.feat_dim))
+                f = np.zeros((self.max_num_nodes, self.feat_dim), dtype=float)
                 for i,u in enumerate(G.nodes()):
                     f[i,:] = G.node[u]['feat']
                 self.feature_all.append(f)
