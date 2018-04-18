@@ -13,6 +13,7 @@ import encoders
 import gen.feat as featgen
 import gen.data as datagen
 from graph_sampler import GraphSampler
+import load_data
 import util
 
 def synthetic_task_test(dataset, model, args):
@@ -64,6 +65,32 @@ def synthetic_task_train(dataset, model, args, same_feat=True):
 
     return model
 
+def prepare_data(graphs, train_ratio):
+    random.shuffle(graphs)
+
+    train_idx = int(len(graphs) * train_ratio)
+    train_graphs = graphs[:train_idx]
+    test_graphs = graphs[train_idx:]
+    print('Num training graphs: ', len(train_graphs), 
+          '; Num testing graphs: ', len(test_graphs))
+
+    # minibatch
+    dataset_sampler = GraphSampler(train_graphs)
+    train_dataset_loader = torch.utils.data.DataLoader(
+            dataset_sampler, 
+            batch_size=args.batch_size, 
+            shuffle=True,
+            num_workers=args.num_workers)
+
+    dataset_sampler = GraphSampler(test_graphs)
+    test_dataset_loader = torch.utils.data.DataLoader(
+            dataset_sampler, 
+            batch_size=args.batch_size, 
+            shuffle=False,
+            num_workers=args.num_workers)
+
+    return train_dataset_loader, test_dataset_loader
+
 def synthetic_task1(args, export_graphs=False):
 
     # data
@@ -82,34 +109,15 @@ def synthetic_task1(args, export_graphs=False):
         util.draw_graph_list(graphs2[:16], 4, 4, 'figs/ba2')
 
     graphs = graphs1 + graphs2
-    random.shuffle(graphs)
-
-    train_idx = int(len(graphs) * 0.8)
-    train_graphs = graphs[:train_idx]
-    test_graphs = graphs[train_idx:]
-    print('Num training graphs: ', len(train_graphs), 
-          '; Num testing graphs: ', len(test_graphs))
-
-    # minibatch
-    dataset_sampler = GraphSampler(train_graphs)
-    dataset_loader = torch.utils.data.DataLoader(
-            dataset_sampler, 
-            batch_size=args.batch_size, 
-            shuffle=True,
-            num_workers=args.num_workers)
-
-    dataset_sampler = GraphSampler(test_graphs)
-    dataset_loader = torch.utils.data.DataLoader(
-            dataset_sampler, 
-            batch_size=args.batch_size, 
-            shuffle=False,
-            num_workers=args.num_workers)
-
+    
+    train_dataset, test_dataset = prepare_data(graphs, 0.8)
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
-    synthetic_task_train(dataset_loader, model, args)
-    synthetic_task_test(dataset_loader, model, args)
+    synthetic_task_train(train_dataset, model, args)
+    synthetic_task_test(train_dataset, model, args)
 
 def benchmark_task(args):
+    graphs, _ = load_data.read_graphfile(args.datadir, args.bmname)
+    print('len', len(graphs))
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
