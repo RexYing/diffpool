@@ -33,8 +33,6 @@ def synthetic_task_test(dataset, model, args):
     preds = np.hstack(preds)
     
     print("Validation F1:", metrics.f1_score(labels, preds, average="micro"))
-    print(labels)
-    print(preds)
     print("Validation prec:", metrics.precision_score(labels, preds))
     print("Validation recall:", metrics.recall_score(labels, preds))
 
@@ -110,12 +108,19 @@ def synthetic_task1(args, export_graphs=False):
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
     synthetic_task_train(dataset_loader, model, args)
     synthetic_task_test(dataset_loader, model, args)
+
+def benchmark_task(args):
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
     io_parser = parser.add_mutually_exclusive_group(required=False)
     io_parser.add_argument('--dataset', dest='dataset', 
             help='Input dataset.')
+    benchmark_parser = io_parser.add_mutually_exclusive_group(required=False)
+    benchmark_parser.add_argument('--datadir', dest='datadir',
+            help='Directory where benchmark is located')
+    benchmark_parser.add_argument('--bmname', dest='bmname',
+            help='Name of the benchmark dataset')
 
     parser.add_argument('--cuda', dest='cuda',
             help='CUDA.')
@@ -136,7 +141,8 @@ def arg_parse():
     parser.add_argument('--output_dim', dest='output_dim', type=int,
             help='Output dimension')
 
-    parser.set_defaults(cuda='1',
+    parser.set_defaults(dataset='synthetic1',
+                        cuda='1',
                         feature_type='default',
                         lr=0.001,
                         batch_size=10,
