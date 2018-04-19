@@ -104,6 +104,5 @@ ENV/
 *.sw?
 
 # data
-data/
 figs/
 

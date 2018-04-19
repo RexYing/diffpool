@@ -16,7 +16,7 @@ from graph_sampler import GraphSampler
 import load_data
 import util
 
-def synthetic_task_test(dataset, model, args):
+def synthetic_task_eval(dataset, model, args, name='Validation'):
     model.eval()
 
     labels = []
@@ -33,9 +33,9 @@ def synthetic_task_test(dataset, model, args):
     labels = np.hstack(labels)
     preds = np.hstack(preds)
     
-    print("Validation F1:", metrics.f1_score(labels, preds, average="micro"))
-    print("Validation prec:", metrics.precision_score(labels, preds))
-    print("Validation recall:", metrics.recall_score(labels, preds))
+    print(name, " F1:", metrics.f1_score(labels, preds, average="micro"))
+    print(name, " prec:", metrics.precision_score(labels, preds))
+    print(name, " recall:", metrics.recall_score(labels, preds))
 
 def synthetic_task_train(dataset, model, args, same_feat=True):
     model.train()
@@ -58,17 +58,17 @@ def synthetic_task_train(dataset, model, args, same_feat=True):
             end_time = time.time()
             times.append(end_time-start_time)
             iter += 1
-            if iter % 5 == 0:
+            if iter % 10 == 0:
                 print('Iter: ', iter, ', loss: ', loss.data[0])
 
     print("Average batch time:", np.mean(times))
 
     return model
 
-def prepare_data(graphs, train_ratio):
+def prepare_data(graphs, args):
     random.shuffle(graphs)
 
-    train_idx = int(len(graphs) * train_ratio)
+    train_idx = int(len(graphs) * args.train_ratio)
     train_graphs = graphs[:train_idx]
     test_graphs = graphs[train_idx:]
     print('Num training graphs: ', len(train_graphs), 
@@ -110,21 +110,33 @@ def synthetic_task1(args, export_graphs=False):
 
     graphs = graphs1 + graphs2
     
-    train_dataset, test_dataset = prepare_data(graphs, 0.8)
+    train_dataset, test_dataset = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
     synthetic_task_train(train_dataset, model, args)
-    synthetic_task_test(train_dataset, model, args)
+    synthetic_task_eval(train_dataset, model, args, "Train")
+    synthetic_task_eval(test_dataset, model, args, "Validation")
 
-def benchmark_task(args):
-    graphs, _ = load_data.read_graphfile(args.datadir, args.bmname)
-    print('len', len(graphs))
+def benchmark_task(args, feat=None):
+    graphs = load_data.read_graphfile(args.datadir, args.bmname)
+    if feat == 'node-label':
+        for G in graphs:
+            for u in G.nodes():
+                G.node[u]['feat'] = G.node[u]['label']
+    else:
+        featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float) * 0.5)
+        for G in graphs:
+            featgen_const.gen_node_features(G)
+
+    train_dataset, test_dataset = prepare_data(graphs, args)
+    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
+    synthetic_task_train(train_dataset, model, args)
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
     io_parser = parser.add_mutually_exclusive_group(required=False)
     io_parser.add_argument('--dataset', dest='dataset', 
             help='Input dataset.')
-    benchmark_parser = io_parser.add_mutually_exclusive_group(required=False)
+    benchmark_parser = io_parser.add_argument_group()
     benchmark_parser.add_argument('--datadir', dest='datadir',
             help='Directory where benchmark is located')
     benchmark_parser.add_argument('--bmname', dest='bmname',
@@ -134,19 +146,21 @@ def arg_parse():
             help='CUDA.')
     parser.add_argument('--lr', dest='lr', type=float,
             help='Learning rate.')
-    parser.add_argument('--batch_size', dest='batch_size', type=int,
+    parser.add_argument('--batch-size', dest='batch_size', type=int,
             help='Batch size.')
     parser.add_argument('--epochs', dest='num_epochs', type=int,
             help='Number of epochs to train.')
+    parser.add_argument('--train-ratio', dest='train_ratio', type=float,
+            help='Ratio of number of graphs training set to all graphs.')
     parser.add_argument('--num_workers', dest='num_workers', type=int,
             help='Number of workers to load data.')
     parser.add_argument('--feature', dest='feature_type',
             help='Feature used for encoder. Can be: id, deg')
-    parser.add_argument('--input_dim', dest='input_dim', type=int,
+    parser.add_argument('--input-dim', dest='input_dim', type=int,
             help='Input feature dimension')
-    parser.add_argument('--hidden_dim', dest='hidden_dim', type=int,
+    parser.add_argument('--hidden-dim', dest='hidden_dim', type=int,
             help='Hidden dimension')
-    parser.add_argument('--output_dim', dest='output_dim', type=int,
+    parser.add_argument('--output-dim', dest='output_dim', type=int,
             help='Output dimension')
 
     parser.set_defaults(dataset='synthetic1',
@@ -154,7 +168,8 @@ def arg_parse():
                         feature_type='default',
                         lr=0.001,
                         batch_size=10,
-                        num_epochs=5,
+                        num_epochs=10,
+                        train_ratio=0.8,
                         num_workers=1,
                         input_dim=10,
                         hidden_dim=20,
@@ -168,7 +183,10 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = prog_args.cuda
     print('CUDA', prog_args.cuda)
 
-    synthetic_task1(prog_args)
+    if prog_args.datadir is not None:
+        benchmark_task(prog_args)
+    elif prog_args.dataset is not None:
+        synthetic_task1(prog_args)
 
 if __name__ == "__main__":
     main()
