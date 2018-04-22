@@ -16,7 +16,7 @@ from graph_sampler import GraphSampler
 import load_data
 import util
 
-def synthetic_task_eval(dataset, model, args, name='Validation'):
+def evaluate(dataset, model, args, name='Validation'):
     model.eval()
 
     labels = []
@@ -37,31 +37,34 @@ def synthetic_task_eval(dataset, model, args, name='Validation'):
     print(name, " prec:", metrics.precision_score(labels, preds))
     print(name, " recall:", metrics.recall_score(labels, preds))
 
-def synthetic_task_train(dataset, model, args, same_feat=True):
-    model.train()
+def train(dataset, model, args, same_feat=True):
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
-    times = []
     iter = 0
     for epoch in range(args.num_epochs):
+        begin_time = time.time()
+        avg_loss = 0.0
+        model.train()
         print('Epoch: ', epoch)
         for batch_idx, data in enumerate(dataset):
             model.zero_grad()
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
-            start_time = time.time()
             ypred = model(h0, adj)
+            print(ypred)
+            print(label)
             loss = model.loss(ypred, label)
             loss.backward()
             optimizer.step()
-            end_time = time.time()
-            times.append(end_time-start_time)
             iter += 1
+            avg_loss += loss.data[0]
             if iter % 10 == 0:
                 print('Iter: ', iter, ', loss: ', loss.data[0])
-
-    print("Average batch time:", np.mean(times))
+        avg_loss /= batch_idx
+        elapsed = time.time() - begin_time
+        print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
+        evaluate(dataset, model, args, name='Train')
 
     return model
 
@@ -112,9 +115,8 @@ def synthetic_task1(args, export_graphs=False):
     
     train_dataset, test_dataset = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
-    synthetic_task_train(train_dataset, model, args)
-    synthetic_task_eval(train_dataset, model, args, "Train")
-    synthetic_task_eval(test_dataset, model, args, "Validation")
+    train(train_dataset, model, args)
+    evaluate(test_dataset, model, args, "Train")
 
 def benchmark_task(args, feat=None):
     graphs = load_data.read_graphfile(args.datadir, args.bmname)
@@ -123,13 +125,14 @@ def benchmark_task(args, feat=None):
             for u in G.nodes():
                 G.node[u]['feat'] = G.node[u]['label']
     else:
-        featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float) * 0.5)
+        featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
         for G in graphs:
             featgen_const.gen_node_features(G)
 
     train_dataset, test_dataset = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
-    synthetic_task_train(train_dataset, model, args)
+    train(train_dataset, model, args)
+    eval(test_dataset, model, args, 'Validation')
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
