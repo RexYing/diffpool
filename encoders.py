@@ -5,19 +5,22 @@ import torch.nn.functional as F
 
 # GCN basic operation
 class GraphConv(nn.Module):
-    def __init__(self, input_dim, output_dim, add_self=False):
+    def __init__(self, input_dim, output_dim, add_self=False, normalize_embedding=False):
         super(GraphConv, self).__init__()
         self.add_self = add_self
+        self.normalize_embedding = normalize_embedding
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.weight = nn.Parameter(torch.FloatTensor(input_dim, output_dim).cuda())
         self.bias = nn.Parameter(torch.FloatTensor(output_dim).cuda())
-        # self.act = nn.ReLU()
     def forward(self, x, adj):
         y = torch.matmul(adj, x)
         if self.add_self:
             y += x
         y = torch.matmul(y,self.weight) + self.bias
+        if self.normalize_embedding:
+            y = F.normalize(y, p=2, dim=2)
+            #print(y[0][0])
         return y
 
 class GcnEncoderGraph(nn.Module):
@@ -66,7 +69,7 @@ class GcnEncoderGraph(nn.Module):
             out,_ = torch.max(x, dim=1)
             out_all.append(out)
         x = self.conv_last(x,adj)
-        x = self.act(x)
+        #x = self.act(x)
         out, _ = torch.max(x, dim=1)
         out_all.append(out)
         if self.concat:
@@ -80,5 +83,6 @@ class GcnEncoderGraph(nn.Module):
     def loss(self, pred, label):
         # softmax + CE
         return F.cross_entropy(pred, label, size_average=True)
+        #return F.binary_cross_entropy(F.sigmoid(input), label)
 
 

@@ -105,4 +105,7 @@ ENV/
 
 # data
 figs/
+results/
+tmp/
+
 

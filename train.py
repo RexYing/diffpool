@@ -52,8 +52,8 @@ def train(dataset, model, args, same_feat=True):
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
             ypred = model(h0, adj)
-            print(ypred)
-            print(label)
+            #print(label)
+            #print(ypred)
             loss = model.loss(ypred, label)
             loss.backward()
             optimizer.step()
@@ -61,10 +61,10 @@ def train(dataset, model, args, same_feat=True):
             avg_loss += loss.data[0]
             if iter % 10 == 0:
                 print('Iter: ', iter, ', loss: ', loss.data[0])
-        avg_loss /= batch_idx
+        avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
-        evaluate(dataset, model, args, name='Train')
+        #evaluate(dataset, model, args, name='Train')
 
     return model
 
@@ -73,19 +73,20 @@ def prepare_data(graphs, args):
 
     train_idx = int(len(graphs) * args.train_ratio)
     train_graphs = graphs[:train_idx]
+    #train_graphs = graphs[:10]
     test_graphs = graphs[train_idx:]
     print('Num training graphs: ', len(train_graphs), 
           '; Num testing graphs: ', len(test_graphs))
 
     # minibatch
-    dataset_sampler = GraphSampler(train_graphs)
+    dataset_sampler = GraphSampler(train_graphs, normalize=True)
     train_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=True,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(test_graphs)
+    dataset_sampler = GraphSampler(test_graphs, normalize=True)
     test_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
@@ -98,14 +99,14 @@ def synthetic_task1(args, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
-            featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float) *0.5))
+            featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float)))
     for G in graphs1:
         G.graph['label'] = 0
     if export_graphs:
         util.draw_graph_list(graphs1[:16], 4, 4, 'figs/ba')
 
     graphs2 = datagen.gen_2community_ba(range(20, 30), range(4, 5), 500, 0.3, 
-            [featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float)*0.5)])
+            [featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))])
     for G in graphs2:
         G.graph['label'] = 1
     if export_graphs:
@@ -132,7 +133,7 @@ def benchmark_task(args, feat=None):
     train_dataset, test_dataset = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
     train(train_dataset, model, args)
-    eval(test_dataset, model, args, 'Validation')
+    evaluate(test_dataset, model, args, 'Validation')
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
