@@ -134,7 +134,7 @@ def synthetic_task1(args, export_graphs=False):
     evaluate(test_dataset, model, args, "Validation")
 
 def benchmark_task(args, feat=None):
-    graphs = load_data.read_graphfile(args.datadir, args.bmname)
+    graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
     if feat == 'node-label':
         for G in graphs:
             for u in G.nodes():
@@ -162,6 +162,8 @@ def arg_parse():
 
     parser.add_argument('--cuda', dest='cuda',
             help='CUDA.')
+    parser.add_argument('--max-nodes', dest='max_nodes', type=int,
+            help='Maximum number of nodes (ignore graghs with nodes exceeding the number.')
     parser.add_argument('--lr', dest='lr', type=float,
             help='Learning rate.')
     parser.add_argument('--batch-size', dest='batch_size', type=int,
@@ -184,6 +186,7 @@ def arg_parse():
             help='Number of graph convolution layers before each pooling')
 
     parser.set_defaults(dataset='synthetic1',
+                        max_nodes = 1000,
                         cuda='1',
                         feature_type='default',
                         lr=0.001,

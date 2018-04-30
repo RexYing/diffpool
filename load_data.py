@@ -3,7 +3,7 @@ import numpy as np
 import scipy as sc
 import os
 
-def read_graphfile(datadir, dataname):
+def read_graphfile(datadir, dataname, max_nodes=None):
     ''' Read data from https://ls11-www.cs.tu-dortmund.de/staff/morris/graphkerneldatasets
         graph index starts with 1 in file
 
@@ -49,31 +49,31 @@ def read_graphfile(datadir, dataname):
     for k in index_graph.keys():
         index_graph[k]=[u-1 for u in set(index_graph[k])]
 
-    graphs=[None] * len(adj_list)
+    graphs=[]
     for i in range(1,1+len(adj_list)):
         # indexed from 1 here
         G=nx.from_edgelist(adj_list[i])
+        if max_nodes is not None and G.number_of_nodes() > max_nodes:
+            continue
       
         # add features and labels
         G.graph['label'] = graph_labels[i-1]
         for u in G.nodes():
             G.node[u]['label'] = node_labels[u-1]
 
-        graphs[i-1] = G
-
         # relabeling
         mapping={}
         it=0
         if float(nx.__version__)<2.0:
-            for n in graphs[i-1].nodes():
+            for n in G.nodes():
                 mapping[n]=it
                 it+=1
         else:
-            for n in graphs[i-1].nodes:
+            for n in G.nodes:
                 mapping[n]=it
                 it+=1
             
         # indexed from 0
-        graphs[i-1] = nx.relabel_nodes(graphs[i-1], mapping)
+        graphs.append(nx.relabel_nodes(G, mapping))
     return graphs
 
