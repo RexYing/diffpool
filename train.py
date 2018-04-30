@@ -16,7 +16,7 @@ from graph_sampler import GraphSampler
 import load_data
 import util
 
-def evaluate(dataset, model, args, name='Validation'):
+def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
     model.eval()
 
     labels = []
@@ -29,6 +29,10 @@ def evaluate(dataset, model, args, name='Validation'):
         ypred = model(h0, adj)
         _, indices = torch.max(ypred, 1)
         preds.append(indices.cpu().data.numpy())
+
+        if max_num_examples is not None:
+            if (batch_idx+1)*args.batch_size > max_num_examples:
+                break
 
     labels = np.hstack(labels)
     preds = np.hstack(preds)
@@ -52,19 +56,19 @@ def train(dataset, model, args, same_feat=True):
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
             ypred = model(h0, adj)
-            #print(label)
-            #print(ypred)
             loss = model.loss(ypred, label)
             loss.backward()
             optimizer.step()
             iter += 1
             avg_loss += loss.data[0]
             if iter % 10 == 0:
+                #print(label)
+                #print(ypred)
                 print('Iter: ', iter, ', loss: ', loss.data[0])
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
-        #evaluate(dataset, model, args, name='Train')
+        evaluate(dataset, model, args, name='Train', max_num_examples=100)
 
     return model
 
@@ -78,15 +82,22 @@ def prepare_data(graphs, args):
     print('Num training graphs: ', len(train_graphs), 
           '; Num testing graphs: ', len(test_graphs))
 
+    print('Number of graphs: ', len(graphs))
+    print('Number of edges: ', sum([G.number_of_edges() for G in graphs]))
+    print('Max, avg, std of graph size: ', 
+            max([G.number_of_nodes() for G in graphs]), ', '
+            "{0:.2f}".format(np.mean([G.number_of_nodes() for G in graphs])), ', '
+            "{0:.2f}".format(np.std([G.number_of_nodes() for G in graphs])))
+
     # minibatch
-    dataset_sampler = GraphSampler(train_graphs, normalize=True)
+    dataset_sampler = GraphSampler(train_graphs, normalize=False)
     train_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=True,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(test_graphs, normalize=True)
+    dataset_sampler = GraphSampler(test_graphs, normalize=False)
     test_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
@@ -113,11 +124,14 @@ def synthetic_task1(args, export_graphs=False):
         util.draw_graph_list(graphs2[:16], 4, 4, 'figs/ba2')
 
     graphs = graphs1 + graphs2
+
     
     train_dataset, test_dataset = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
+    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
+            args.num_gc_layers).cuda()
     train(train_dataset, model, args)
-    evaluate(test_dataset, model, args, "Train")
+    evaluate(train_dataset, model, args, "Train")
+    evaluate(test_dataset, model, args, "Validation")
 
 def benchmark_task(args, feat=None):
     graphs = load_data.read_graphfile(args.datadir, args.bmname)
@@ -166,18 +180,21 @@ def arg_parse():
             help='Hidden dimension')
     parser.add_argument('--output-dim', dest='output_dim', type=int,
             help='Output dimension')
+    parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
+            help='Number of graph convolution layers before each pooling')
 
     parser.set_defaults(dataset='synthetic1',
                         cuda='1',
                         feature_type='default',
                         lr=0.001,
-                        batch_size=10,
-                        num_epochs=10,
+                        batch_size=20,
+                        num_epochs=20,
                         train_ratio=0.8,
                         num_workers=1,
                         input_dim=10,
                         hidden_dim=20,
                         output_dim=30,
+                        num_gc_layers=4,
                        )
     return parser.parse_args()
 

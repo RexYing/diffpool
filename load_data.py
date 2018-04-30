@@ -48,8 +48,6 @@ def read_graphfile(datadir, dataname):
             num_edges += 1
     for k in index_graph.keys():
         index_graph[k]=[u-1 for u in set(index_graph[k])]
-    print('Number of graphs loaded: ', len(graph_labels))
-    print('Number of edges loaded: ', num_edges)
 
     graphs=[None] * len(adj_list)
     for i in range(1,1+len(adj_list)):

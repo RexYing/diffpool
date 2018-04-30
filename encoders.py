@@ -25,7 +25,7 @@ class GraphConv(nn.Module):
 
 class GcnEncoderGraph(nn.Module):
     def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
-            pred_hidden_dim=None, concat=True):
+            pred_hidden_dims=[], concat=True):
         super(GcnEncoderGraph, self).__init__()
         self.concat = concat
         add_self = not concat
@@ -42,20 +42,25 @@ class GcnEncoderGraph(nn.Module):
         else:
             pred_input_dim = embedding_dim
 
-        if pred_hidden_dim is None:
-            pred_hidden_dim = embedding_dim // 2
+        if len(pred_hidden_dims) == 0:
+            self.pred_model = nn.Linear(pred_input_dim, label_dim)
+        else:
+            pred_layers = []
+            for pred_dim in pred_hidden_dims:
+                pred_layers.append(nn.Linear(pred_input_dim, pred_dim))
+                pred_layers.append(self.act)
+                pred_input_dim = pred_dim
+            pred_layers.append(nn.Linear(pred_dim, label_dim))
+            self.pred_model = nn.Sequential(*pred_layers)
             
-        self.pred_model = nn.Sequential(
-                nn.Linear(pred_input_dim, pred_hidden_dim),
-                self.act,
-                nn.Linear(pred_hidden_dim, label_dim))
+        #self.pred_model = nn.Sequential(
+        #        nn.Linear(pred_input_dim, pred_hidden_dim),
+        #        self.act,
+        #        nn.Linear(pred_hidden_dim, label_dim))
         for m in self.modules():
             if isinstance(m, GraphConv):
                 m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
                 m.bias.data = init.constant(m.bias.data, 0.0)
-                # init_range = np.sqrt(6.0 / (m.input_dim + m.output_dim))
-                # m.weight.data = torch.rand([m.input_dim, m.output_dim]).cuda()*init_range
-                # print('find!')
                 
     def forward(self, x, adj):
         x = self.conv_first(x, adj)
@@ -67,10 +72,12 @@ class GcnEncoderGraph(nn.Module):
             x = self.conv_block[i](x,adj)
             x = self.act(x)
             out,_ = torch.max(x, dim=1)
+            #out = torch.sum(x, dim=1)
             out_all.append(out)
         x = self.conv_last(x,adj)
         #x = self.act(x)
         out, _ = torch.max(x, dim=1)
+        #out = torch.sum(x, dim=1)
         out_all.append(out)
         if self.concat:
             output = torch.cat(out_all, dim=1)
@@ -83,6 +90,6 @@ class GcnEncoderGraph(nn.Module):
     def loss(self, pred, label):
         # softmax + CE
         return F.cross_entropy(pred, label, size_average=True)
-        #return F.binary_cross_entropy(F.sigmoid(input), label)
+        #return F.binary_cross_entropy(F.sigmoid(pred[:,0]), label.float())
 
 
