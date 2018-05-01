@@ -125,10 +125,15 @@ def synthetic_task1(args, export_graphs=False):
 
     graphs = graphs1 + graphs2
 
-    
+    max_node = max([G.number_of_nodes() for G in graphs])
+    print('max_node', max_node)
     train_dataset, test_dataset = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
-            args.num_gc_layers).cuda()
+    if args.model=='flex':
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,max_node//2, args.output_dim, 2,
+                args.num_gc_layers).cuda()
+    else:
+        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
+                                         args.num_gc_layers).cuda()
     train(train_dataset, model, args)
     evaluate(train_dataset, model, args, "Train")
     evaluate(test_dataset, model, args, "Validation")
@@ -144,8 +149,13 @@ def benchmark_task(args, feat=None):
         for G in graphs:
             featgen_const.gen_node_features(G)
 
+    max_node = max([G.number_of_nodes() for G in graphs])
+    print('max_node',max_node)
     train_dataset, test_dataset = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, 2).cuda()
+    if args.model=='flex':
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,max_node//2, 2, args.num_gc_layers).cuda()
+    else:
+        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, args.num_gc_layers).cuda()
     train(train_dataset, model, args)
     evaluate(test_dataset, model, args, 'Validation')
     
@@ -159,6 +169,8 @@ def arg_parse():
             help='Directory where benchmark is located')
     benchmark_parser.add_argument('--bmname', dest='bmname',
             help='Name of the benchmark dataset')
+    benchmark_parser.add_argument('--mdname', dest='mdname',
+                                  help='Name of the model')
 
     parser.add_argument('--cuda', dest='cuda',
             help='CUDA.')
@@ -186,6 +198,7 @@ def arg_parse():
             help='Number of graph convolution layers before each pooling')
 
     parser.set_defaults(dataset='synthetic1',
+                        mdname='normal',
                         max_nodes = 1000,
                         cuda='1',
                         feature_type='default',
