@@ -88,7 +88,7 @@ class GcnEncoderGraph(nn.Module):
         x = self.conv_last(x,adj)
         x_all.append(x)
         x_tensor = torch.cat(x_all, dim=1)
-        print('xtensor: ', x_tensor.size())
+        # print('xtensor: ', x_tensor.size())
         return x_tensor
 
     def forward(self, x, adj):
@@ -217,7 +217,6 @@ class GcnEncoderGraph_flex(nn.Module):
         for i in range(self.num_layers - 2):
             x_gcn = self.act(self.conv_block[i](x, adj))
             x_a = self.act_assign(self.conv_block_assign[i](x, adj))
-            print(x_a[0])
             # apply soft assignment
             x = x_a.permute(0, 2, 1) @ x_gcn
             adj = x_a.permute(0, 2, 1) @ adj @ x_a
