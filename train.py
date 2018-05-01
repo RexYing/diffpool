@@ -128,10 +128,10 @@ def synthetic_task1(args, export_graphs=False):
 
     train_dataset, test_dataset = prepare_data(graphs, args)
     if args.model=='flex':
-        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,args.max_nodes//2, args.output_dim, 2,
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,args.max_nodes//2, args.output_dim, args.label_classes,
                 args.num_gc_layers).cuda()
     else:
-        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
+        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, args.label_classes,
                                          args.num_gc_layers).cuda()
     train(train_dataset, model, args)
     evaluate(train_dataset, model, args, "Train")
@@ -150,9 +150,9 @@ def benchmark_task(args, feat=None):
 
     train_dataset, test_dataset = prepare_data(graphs, args)
     if args.model=='flex':
-        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,args.max_nodes//2, 2, args.num_gc_layers).cuda()
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,args.max_nodes//2, args.label_classes, args.num_gc_layers).cuda()
     else:
-        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, args.num_gc_layers).cuda()
+        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args)
     evaluate(test_dataset, model, args, 'Validation')
     
@@ -193,6 +193,8 @@ def arg_parse():
             help='Output dimension')
     parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
             help='Number of graph convolution layers before each pooling')
+    parser.add_argument('--label-classes', dest='label_classes', type=int,
+            help='label classes num')
 
     parser.set_defaults(dataset='synthetic1',
                         mdname='normal',
@@ -208,6 +210,7 @@ def arg_parse():
                         hidden_dim=20,
                         output_dim=30,
                         num_gc_layers=4,
+                        label_classes=6
                        )
     return parser.parse_args()
 
