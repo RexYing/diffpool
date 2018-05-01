@@ -125,11 +125,10 @@ def synthetic_task1(args, export_graphs=False):
 
     graphs = graphs1 + graphs2
 
-    max_node = max([G.number_of_nodes() for G in graphs])
-    print('max_node', max_node)
+
     train_dataset, test_dataset = prepare_data(graphs, args)
     if args.model=='flex':
-        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,max_node//2, args.output_dim, 2,
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,args.max_nodes//2, args.output_dim, 2,
                 args.num_gc_layers).cuda()
     else:
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
@@ -149,11 +148,9 @@ def benchmark_task(args, feat=None):
         for G in graphs:
             featgen_const.gen_node_features(G)
 
-    max_node = max([G.number_of_nodes() for G in graphs])
-    print('max_node',max_node)
     train_dataset, test_dataset = prepare_data(graphs, args)
     if args.model=='flex':
-        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,max_node//2, 2, args.num_gc_layers).cuda()
+        model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,args.max_nodes//2, 2, args.num_gc_layers).cuda()
     else:
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2, args.num_gc_layers).cuda()
     train(train_dataset, model, args)
