@@ -199,7 +199,11 @@ def benchmark_task(args, feat=None):
         input_dim = args.input_dim
 
     train_dataset, test_dataset = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(
+    if args.model=='flex':
+        model = encoders.GcnEncoderGraph_flex(
+            input_dim, args.hidden_dim, args.max_nodes//2, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
+    else:
+        model = encoders.GcnEncoderGraph(
             input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
@@ -214,10 +218,12 @@ def arg_parse():
             help='Name of the benchmark dataset')
     io_parser.add_argument('--pkl', dest='pkl_fname',
             help='Name of the pkl data file')
-    
+
 
     parser.add_argument('--datadir', dest='datadir',
             help='Directory where benchmark is located')
+    parser.add_argument('--model', dest='model',
+            help='Model type')
     parser.add_argument('--cuda', dest='cuda',
             help='CUDA.')
     parser.add_argument('--max-nodes', dest='max_nodes', type=int,
@@ -250,6 +256,7 @@ def arg_parse():
     parser.set_defaults(datadir='data',
                         dataset='synthetic1',
                         max_nodes=1000,
+                        model='normal',
                         cuda='1',
                         feature_type='default',
                         lr=0.001,
