@@ -149,7 +149,7 @@ def synthetic_task1(args, export_graphs=False):
 
     
     train_dataset, test_dataset = prepare_data(graphs, args)
-    if args.model=='flex':
+    if args.mdname=='flex':
         model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim,args.max_nodes//2, args.output_dim, args.label_classes,
                 args.num_gc_layers).cuda()
     else:
@@ -203,7 +203,7 @@ def benchmark_task(args, feat=None):
         input_dim = args.input_dim
 
     train_dataset, test_dataset = prepare_data(graphs, args)
-    if args.model=='flex':
+    if args.mdname=='flex':
         model = encoders.GcnEncoderGraph_flex(args.input_dim, args.hidden_dim, args.output_dim,args.max_nodes//2, args.label_classes, args.num_gc_layers).cuda()
     else:
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
@@ -257,6 +257,7 @@ def arg_parse():
 
     parser.set_defaults(datadir='data',
                         dataset='synthetic1',
+                        mdname='normal',
                         max_nodes=1000,
                         cuda='1',
                         feature_type='default',
