@@ -39,7 +39,7 @@ def read_graphfile(datadir, dataname, max_nodes=None):
             for line in f:
                 line = line.strip("\s\n")
                 attrs = [float(attr) for attr in re.split("[,\s]+", line) if not attr == '']
-                node_attrs.append(attrs)
+                node_attrs.append(np.array(attrs))
     except IOError:
         print('No node attributes')
        
@@ -74,8 +74,12 @@ def read_graphfile(datadir, dataname, max_nodes=None):
         # add features and labels
         G.graph['label'] = graph_labels[i-1]
         for u in G.nodes():
-            G.node[u]['label'] = node_labels[u-1]
-            G.node[u]['feat'] = no
+            if len(node_labels) > 0:
+                G.node[u]['label'] = node_labels[u-1]
+            if len(node_attrs) > 0:
+                G.node[u]['feat'] = node_attrs[u-1]
+        if len(node_attrs) > 0:
+            G.graph['feat_dim'] = node_attrs[0].shape[0]
 
         # relabeling
         mapping={}

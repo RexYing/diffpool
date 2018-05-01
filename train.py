@@ -177,13 +177,18 @@ def pkl_task(args, feat=None):
 
     train_dataset, test_dataset = prepare_data(graphs, args, test_graphs=test_graphs)
     model = encoders.GcnEncoderGraph(
-            args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, 2).cuda()
+            args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
 def benchmark_task(args, feat=None):
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
-    if feat == 'node-label':
+    
+    if 'feat_dim' in graphs[0].graph:
+        print('Using node features')
+        input_dim = graphs[0].graph['feat_dim']
+    elif feat == 'node-label':
+        print('Using node labels')
         for G in graphs:
             for u in G.nodes():
                 G.node[u]['feat'] = G.node[u]['label']
@@ -191,10 +196,11 @@ def benchmark_task(args, feat=None):
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
         for G in graphs:
             featgen_const.gen_node_features(G)
+        input_dim = args.input_dim
 
     train_dataset, test_dataset = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(
-            args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, 2).cuda()
+            input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
     
