@@ -163,7 +163,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
 
 class GcnEncoderGraph_flex(nn.Module):
     def __init__(self, input_dim, hidden_dim, assign_dim, embedding_dim, label_dim, num_layers,
-                 pred_hidden_dims=[], concat=False):
+                 pred_hidden_dims=[], concat=True):
         super(GcnEncoderGraph_flex, self).__init__()
         self.concat = concat
         add_self = not concat
@@ -180,10 +180,10 @@ class GcnEncoderGraph_flex(nn.Module):
         self.act = nn.ReLU()
         self.act_assign = nn.Softmax(dim=-1)
 
-        if concat:
-            pred_input_dim = hidden_dim * (num_layers - 1) + embedding_dim
-        else:
-            pred_input_dim = embedding_dim
+        # if concat:
+        #     pred_input_dim = hidden_dim * (num_layers - 1) + embedding_dim
+        # else:
+        pred_input_dim = embedding_dim
 
         if len(pred_hidden_dims) == 0:
             self.pred_model = nn.Linear(pred_input_dim, label_dim)
