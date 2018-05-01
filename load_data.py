@@ -2,6 +2,7 @@ import networkx as nx
 import numpy as np
 import scipy as sc
 import os
+import re
 
 def read_graphfile(datadir, dataname, max_nodes=None):
     ''' Read data from https://ls11-www.cs.tu-dortmund.de/staff/morris/graphkerneldatasets
@@ -23,11 +24,25 @@ def read_graphfile(datadir, dataname, max_nodes=None):
 
     filename_nodes=prefix + '_node_labels.txt'
     node_labels=[]
-    with open(filename_nodes) as f:
-        for line in f:
-            line=line.strip("\n")
-            node_labels+=[int(line) - 1]
-    
+    try:
+        with open(filename_nodes) as f:
+            for line in f:
+                line=line.strip("\n")
+                node_labels+=[int(line) - 1]
+    except IOError:
+        print('No node labels')
+ 
+    filename_node_attrs=prefix + '_node_attributes.txt'
+    node_attrs=[]
+    try:
+        with open(filename_node_attrs) as f:
+            for line in f:
+                line = line.strip("\s\n")
+                attrs = [float(attr) for attr in re.split("[,\s]+", line) if not attr == '']
+                node_attrs.append(attrs)
+    except IOError:
+        print('No node attributes')
+       
     filename_graphs=prefix + '_graph_labels.txt'
     graph_labels=[]
     with open(filename_graphs) as f:
@@ -60,6 +75,7 @@ def read_graphfile(datadir, dataname, max_nodes=None):
         G.graph['label'] = graph_labels[i-1]
         for u in G.nodes():
             G.node[u]['label'] = node_labels[u-1]
+            G.node[u]['feat'] = no
 
         # relabeling
         mapping={}
