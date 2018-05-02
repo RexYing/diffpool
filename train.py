@@ -126,7 +126,7 @@ def prepare_data(graphs, args, test_graphs=None):
             shuffle=False,
             num_workers=args.num_workers)
 
-    return train_dataset_loader, test_dataset_loader
+    return train_dataset_loader, test_dataset_loader, dataset_sampler.max_num_nodes
 
 def synthetic_task1(args, export_graphs=False):
 
@@ -148,11 +148,16 @@ def synthetic_task1(args, export_graphs=False):
     graphs = graphs1 + graphs2
 
     
-    train_dataset, test_dataset = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
-            args.num_gc_layers).cuda()
-    train(train_dataset, model, args)
-    evaluate(train_dataset, model, args, "Train")
+    train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
+    if args.method == 'soft-assign':
+        model = encoders.SoftPoolingGcnEncoder(
+                max_num_nodes, 
+                args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers,
+                args.hidden_dim, assign_ratio=args.assign_ratio).cuda()
+    else:
+        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
+                args.num_gc_layers).cuda()
+    train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, "Validation")
 
 def pkl_task(args, feat=None):
@@ -175,7 +180,7 @@ def pkl_task(args, feat=None):
         for G in test_graphs:
             featgen_const.gen_node_features(G)
 
-    train_dataset, test_dataset = prepare_data(graphs, args, test_graphs=test_graphs)
+    train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args, test_graphs=test_graphs)
     model = encoders.GcnEncoderGraph(
             args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
@@ -198,7 +203,7 @@ def benchmark_task(args, feat=None):
             featgen_const.gen_node_features(G)
         input_dim = args.input_dim
 
-    train_dataset, test_dataset = prepare_data(graphs, args)
+    train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(
             input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
@@ -214,6 +219,10 @@ def arg_parse():
             help='Name of the benchmark dataset')
     io_parser.add_argument('--pkl', dest='pkl_fname',
             help='Name of the pkl data file')
+
+    softpool_parser = parser.add_argument_group()
+    softpool_parser.add_argument('--assign-ratio', dest='assign_ratio', type=float,
+            help='ratio of number of nodes in consecutive layers')
     
 
     parser.add_argument('--datadir', dest='datadir',
@@ -247,6 +256,9 @@ def arg_parse():
     parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
             help='Number of graph convolution layers before each pooling')
 
+    parser.add_argument('--method', dest='method',
+            help='Method. Possible values: base, soft-assign')
+
     parser.set_defaults(datadir='data',
                         dataset='synthetic1',
                         max_nodes=1000,
@@ -263,6 +275,8 @@ def arg_parse():
                         output_dim=30,
                         label_classes=2,
                         num_gc_layers=4,
+                        method='base',
+                        assign_ratio=0.25
                        )
     return parser.parse_args()
 
