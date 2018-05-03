@@ -32,7 +32,7 @@ class GcnEncoderGraph(nn.Module):
         self.num_layers = num_layers
 
         self.conv_first, self.conv_block, self.conv_last = self.build_conv_layers(
-                input_dim, hidden_dim, embedding_dim, num_layers, add_self)
+                input_dim, hidden_dim, embedding_dim, num_layers, add_self, normalize=True)
         self.act = nn.ReLU()
 
         if concat:
@@ -46,12 +46,16 @@ class GcnEncoderGraph(nn.Module):
                 m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
                 m.bias.data = init.constant(m.bias.data, 0.0)
 
-    def build_conv_layers(self, input_dim, hidden_dim, embedding_dim, num_layers, add_self):
-        conv_first = GraphConv(input_dim=input_dim, output_dim=hidden_dim, add_self=add_self)
+    def build_conv_layers(self, input_dim, hidden_dim, embedding_dim, num_layers, add_self,
+            normalize=False):
+        conv_first = GraphConv(input_dim=input_dim, output_dim=hidden_dim, add_self=add_self,
+                normalize_embedding=normalize)
         conv_block = nn.ModuleList(
-                [GraphConv(input_dim=hidden_dim, output_dim=hidden_dim, add_self=add_self) 
+                [GraphConv(input_dim=hidden_dim, output_dim=hidden_dim, add_self=add_self,
+                        normalize_embedding=normalize) 
                  for i in range(num_layers-2)])
-        conv_last = GraphConv(input_dim=hidden_dim, output_dim=embedding_dim, add_self=add_self)
+        conv_last = GraphConv(input_dim=hidden_dim, output_dim=embedding_dim, add_self=add_self,
+                normalize_embedding=normalize)
         return conv_first, conv_block, conv_last
 
     def build_pred_layers(self, pred_input_dim, pred_hidden_dims, label_dim):
@@ -69,24 +73,20 @@ class GcnEncoderGraph(nn.Module):
         return pred_model
 
     def gcn_forward(self, x, adj, conv_first, conv_block, conv_last):
-        x = self.conv_first(x, adj)
+        x = conv_first(x, adj)
         x = self.act(x)
         x_all = [x]
         #out_all = []
         #out, _ = torch.max(x, dim=1)
         #out_all.append(out)
         for i in range(len(conv_block)):
-            x = self.conv_block[i](x,adj)
+            x = conv_block[i](x,adj)
             x = self.act(x)
             x_all.append(x)
-            #out,_ = torch.max(x, dim=1)
-            #out = torch.sum(x, dim=1)
-            #out_all.append(out)
-        x = self.conv_last(x,adj)
+        x = conv_last(x,adj)
         x_all.append(x)
         # x_tensor: [batch_size x num_nodes x embedding]
         x_tensor = torch.cat(x_all, dim=2)
-        print('xtensor: ', x_tensor.size())
         return x_tensor
 
     def forward(self, x, adj):
@@ -129,25 +129,29 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 num_layers, pred_hidden_dims=pred_hidden_dims, concat=concat)
         add_self = not concat
         
-        self.conv_first, self.conv_block, self.conv_last = self.build_conv_layers(
-                input_dim, hidden_dim, embedding_dim, num_layers, add_self)
-        self.conv_first_after_pool = GraphConv(input_dim=self.pred_input_dim, output_dim=hidden_dim, add_self=add_self)
+        self.conv_first2, self.conv_block2, self.conv_last2 = self.build_conv_layers(
+                self.pred_input_dim, hidden_dim, embedding_dim, num_layers, add_self, normalize=True)
 
         # assignment
         assign_dim = int(max_num_nodes * assign_ratio)
         if assign_num_layers == -1:
             assign_num_layers = num_layers
         self.assign_conv_first, self.assign_conv_block, self.assign_conv_last = self.build_conv_layers(
-                input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self)
+                input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
+                normalize=True)
         assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
         self.assign_pred = self.build_pred_layers(assign_pred_input_dim, pred_hidden_dims, assign_dim)
 
+        for m in self.modules():
+            if isinstance(m, GraphConv):
+                m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
+                m.bias.data = init.constant(m.bias.data, 0.0)
 
     def forward(self, x, adj):
         assign_tensor = self.gcn_forward(x, adj, 
                 self.assign_conv_first, self.assign_conv_block, self.assign_conv_last)
         # [batch_size x num_nodes x next_lvl_num_nodes]
-        assign_tensor = self.assign_pred(assign_tensor)
+        assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(assign_tensor))
         # [batch_size x num_nodes x embedding_dim]
         embedding_tensor = self.gcn_forward(x, adj,
                 self.conv_first, self.conv_block, self.conv_last)
@@ -155,11 +159,14 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         # update pooled features and adj matrix
         x = torch.matmul(torch.transpose(assign_tensor, 1, 2), embedding_tensor)
         adj = torch.transpose(assign_tensor, 1, 2) @ adj @ assign_tensor
+        #print(x)
+        #print(adj)
         
         embedding_tensor = self.gcn_forward(x, adj, 
-                self.conv_first_after_pool, self.conv_block, self.conv_last)
+                self.conv_first2, self.conv_block2, self.conv_last2)
 
-        out = torch.max(embedding_tensor, dim=1)
+        #out, _ = torch.max(embedding_tensor, dim=1)
+        out = torch.mean(embedding_tensor, dim=1)
         ypred = self.pred_model(out)
         return ypred
 
