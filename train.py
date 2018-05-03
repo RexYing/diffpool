@@ -3,11 +3,12 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 import argparse
+import matplotlib.pyplot as plt
 import numpy as np
-import sklearn.metrics as metrics
 import os
 import pickle
 import random
+import sklearn.metrics as metrics
 import time
 
 import encoders
@@ -47,6 +48,16 @@ def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
     print(name, " accuracy:", result['acc'])
     return result
 
+def gen_train_plt_name(args):
+    if args.bmname is not None:
+        name = 'results/' + args.bmname
+    else:
+        name = 'results/' + 'syn'
+    name += '_l' + str(args.num_gc_layers)
+    name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
+    name += '_' + args.name_suffix + '.png'
+    return name
+
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None):
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
@@ -55,7 +66,16 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             'epoch': 0,
             'loss': 0,
             'acc': 0}
-    test_results = []
+    test_result = {
+            'epoch': 0,
+            'loss': 0,
+            'acc': 0}
+    train_accs = []
+    train_epochs = []
+    best_val_accs = []
+    best_val_epochs = []
+    test_accs = []
+    test_epochs = []
     for epoch in range(args.num_epochs):
         begin_time = time.time()
         avg_loss = 0.0
@@ -79,15 +99,31 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         elapsed = time.time() - begin_time
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
         result = evaluate(dataset, model, args, name='Train', max_num_examples=100)
+        train_accs.append(result['acc'])
+        train_epochs.append(epoch)
         if val_dataset is not None:
             result = evaluate(val_dataset, model, args, name='Validation')
-        if result['acc'] > best_val_result['acc']:
+        if result['acc'] > best_val_result['acc'] - 1e-7:
             best_val_result['acc'] = result['acc']
             best_val_result['epoch'] = epoch
             best_val_result['loss'] = loss.data[0]
-            test_results.append( evaluate(test_dataset, model, args, name='Test'))
+            test_result = evaluate(test_dataset, model, args, name='Test')
+            test_result['epoch'] = epoch
         print('Best val result: ', best_val_result)
-        print('Test result: ', test_results)
+        print('Test result: ', test_result)
+        best_val_epochs.append(best_val_result['epoch'])
+        best_val_accs.append(best_val_result['acc'])
+        test_epochs.append(test_result['epoch'])
+        test_accs.append(test_result['acc'])
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+    from matplotlib.figure import Figure
+    plt.switch_backend('agg')
+    plt.plot(train_epochs, util.exp_moving_avg(train_accs), '-', lw=1)
+    plt.plot(best_val_epochs, best_val_accs, 'bo', test_epochs, test_accs, 'go')
+    plt.legend(['train', 'val', 'test'])
+    plt.savefig(gen_train_plt_name(args), dpi=600)
+    plt.close()
 
     return model
 
@@ -272,6 +308,8 @@ def arg_parse():
 
     parser.add_argument('--method', dest='method',
             help='Method. Possible values: base, soft-assign')
+    parser.add_argument('--name-suffix', dest='name_suffix',
+            help='suffix added to the output filename')
 
     parser.set_defaults(datadir='data',
                         dataset='synthetic1',
@@ -291,6 +329,7 @@ def arg_parse():
                         num_classes=2,
                         num_gc_layers=4,
                         method='base',
+                        name_suffix='',
                         assign_ratio=0.25
                        )
     return parser.parse_args()

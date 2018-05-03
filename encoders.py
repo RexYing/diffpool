@@ -25,10 +25,11 @@ class GraphConv(nn.Module):
 
 class GcnEncoderGraph(nn.Module):
     def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
-                pred_hidden_dims=[], concat=True):
+                pred_hidden_dims=[], concat=True, bn=True):
         super(GcnEncoderGraph, self).__init__()
         self.concat = concat
         add_self = not concat
+        self.bn = bn
         self.num_layers = num_layers
 
         self.conv_first, self.conv_block, self.conv_last = self.build_conv_layers(
@@ -72,7 +73,7 @@ class GcnEncoderGraph(nn.Module):
             pred_model = nn.Sequential(*pred_layers)
         return pred_model
 
-    def bn(self, x):
+    def apply_bn(self, x):
         ''' Batch normalization of 3D tensor x
         '''
         bn_module = nn.BatchNorm1d(x.size()[1]).cuda()
@@ -81,7 +82,8 @@ class GcnEncoderGraph(nn.Module):
     def gcn_forward(self, x, adj, conv_first, conv_block, conv_last):
         x = conv_first(x, adj)
         x = self.act(x)
-        x = self.bn(x)
+        if self.bn:
+            x = self.apply_bn(x)
         x_all = [x]
         #out_all = []
         #out, _ = torch.max(x, dim=1)
@@ -89,7 +91,8 @@ class GcnEncoderGraph(nn.Module):
         for i in range(len(conv_block)):
             x = conv_block[i](x,adj)
             x = self.act(x)
-            x = self.bn(x)
+            if self.bn:
+                x = self.apply_bn(x)
             x_all.append(x)
         x = conv_last(x,adj)
         x_all.append(x)
@@ -100,14 +103,16 @@ class GcnEncoderGraph(nn.Module):
     def forward(self, x, adj):
         x = self.conv_first(x, adj)
         x = self.act(x)
-        x = self.bn(x)
+        if self.bn:
+            x = self.apply_bn(x)
         out_all = []
         out, _ = torch.max(x, dim=1)
         out_all.append(out)
         for i in range(self.num_layers-2):
             x = self.conv_block[i](x,adj)
             x = self.act(x)
-            x = self.bn(x)
+            if self.bn:
+                x = self.apply_bn(x)
             out,_ = torch.max(x, dim=1)
             #out = torch.sum(x, dim=1)
             out_all.append(out)
