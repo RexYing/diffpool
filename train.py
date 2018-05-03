@@ -152,7 +152,7 @@ def synthetic_task1(args, export_graphs=False):
     if args.method == 'soft-assign':
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
-                args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers,
+                args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio).cuda()
     else:
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
@@ -182,7 +182,7 @@ def pkl_task(args, feat=None):
 
     train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args, test_graphs=test_graphs)
     model = encoders.GcnEncoderGraph(
-            args.input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
+            args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
@@ -205,7 +205,7 @@ def benchmark_task(args, feat=None):
 
     train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(
-            input_dim, args.hidden_dim, args.output_dim, args.label_classes, args.num_gc_layers).cuda()
+            input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
     
@@ -251,7 +251,7 @@ def arg_parse():
             help='Hidden dimension')
     parser.add_argument('--output-dim', dest='output_dim', type=int,
             help='Output dimension')
-    parser.add_argument('--label-classes', dest='label_classes', type=int,
+    parser.add_argument('--num-classes', dest='num_classes', type=int,
             help='Number of label classes')
     parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
             help='Number of graph convolution layers before each pooling')
@@ -273,7 +273,7 @@ def arg_parse():
                         input_dim=10,
                         hidden_dim=20,
                         output_dim=30,
-                        label_classes=2,
+                        num_classes=2,
                         num_gc_layers=4,
                         method='base',
                         assign_ratio=0.25

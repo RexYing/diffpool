@@ -25,7 +25,7 @@ class GraphConv(nn.Module):
 
 class GcnEncoderGraph(nn.Module):
     def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
-            pred_hidden_dims=[], concat=True):
+                pred_hidden_dims=[], concat=True):
         super(GcnEncoderGraph, self).__init__()
         self.concat = concat
         add_self = not concat
@@ -40,7 +40,7 @@ class GcnEncoderGraph(nn.Module):
         else:
             self.pred_input_dim = embedding_dim
         self.pred_model = self.build_pred_layers(self.pred_input_dim, pred_hidden_dims, label_dim)
-            
+
         for m in self.modules():
             if isinstance(m, GraphConv):
                 m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
@@ -72,9 +72,16 @@ class GcnEncoderGraph(nn.Module):
             pred_model = nn.Sequential(*pred_layers)
         return pred_model
 
+    def bn(self, x):
+        ''' Batch normalization of 3D tensor x
+        '''
+        bn_module = nn.BatchNorm1d(x.size()[1]).cuda()
+        return bn_module(x)
+
     def gcn_forward(self, x, adj, conv_first, conv_block, conv_last):
         x = conv_first(x, adj)
         x = self.act(x)
+        x = self.bn(x)
         x_all = [x]
         #out_all = []
         #out, _ = torch.max(x, dim=1)
@@ -82,6 +89,7 @@ class GcnEncoderGraph(nn.Module):
         for i in range(len(conv_block)):
             x = conv_block[i](x,adj)
             x = self.act(x)
+            x = self.bn(x)
             x_all.append(x)
         x = conv_last(x,adj)
         x_all.append(x)
@@ -92,12 +100,14 @@ class GcnEncoderGraph(nn.Module):
     def forward(self, x, adj):
         x = self.conv_first(x, adj)
         x = self.act(x)
+        x = self.bn(x)
         out_all = []
         out, _ = torch.max(x, dim=1)
         out_all.append(out)
         for i in range(self.num_layers-2):
             x = self.conv_block[i](x,adj)
             x = self.act(x)
+            x = self.bn(x)
             out,_ = torch.max(x, dim=1)
             #out = torch.sum(x, dim=1)
             out_all.append(out)
