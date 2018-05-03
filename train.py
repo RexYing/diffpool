@@ -42,19 +42,20 @@ def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
               'recall': metrics.recall_score(labels, preds, average='macro'),
               'acc': metrics.accuracy_score(labels, preds),
               'F1': metrics.f1_score(labels, preds, average="micro")}
-    print(name, " prec:", result['prec'])
-    print(name, " recall:", result['recall'])
+    #print(name, " prec:", result['prec'])
+    #print(name, " recall:", result['recall'])
     print(name, " accuracy:", result['acc'])
     return result
 
-def train(dataset, model, args, same_feat=True, test_dataset=None):
+def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None):
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     iter = 0
-    best_result = {
+    best_val_result = {
             'epoch': 0,
             'loss': 0,
             'acc': 0}
+    test_results = []
     for epoch in range(args.num_epochs):
         begin_time = time.time()
         avg_loss = 0.0
@@ -72,21 +73,21 @@ def train(dataset, model, args, same_feat=True, test_dataset=None):
             optimizer.step()
             iter += 1
             avg_loss += loss.data[0]
-            if iter % 20 == 0:
-                #print(label)
-                #print(ypred)
-                print('Iter: ', iter, ', loss: ', loss.data[0])
+            #if iter % 20 == 0:
+            #    print('Iter: ', iter, ', loss: ', loss.data[0])
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
         result = evaluate(dataset, model, args, name='Train', max_num_examples=100)
-        if test_dataset is not None:
-            result = evaluate(test_dataset, model, args, name='Validation', max_num_examples=100)
-        if result['acc'] > best_result['acc']:
-            best_result['acc'] = result['acc']
-            best_result['epoch'] = epoch
-            best_result['loss'] = loss.data[0]
-        print('Best result: ', best_result)
+        if val_dataset is not None:
+            result = evaluate(val_dataset, model, args, name='Validation')
+        if result['acc'] > best_val_result['acc']:
+            best_val_result['acc'] = result['acc']
+            best_val_result['epoch'] = epoch
+            best_val_result['loss'] = loss.data[0]
+            test_results.append( evaluate(test_dataset, model, args, name='Test'))
+        print('Best val result: ', best_val_result)
+        print('Test result: ', test_results)
 
     return model
 
@@ -96,12 +97,16 @@ def prepare_data(graphs, args, test_graphs=None):
         random.shuffle(graphs)
 
         train_idx = int(len(graphs) * args.train_ratio)
+        test_idx = int(len(graphs) * (1-args.test_ratio))
         train_graphs = graphs[:train_idx]
-        #train_graphs = graphs[:10]
-        test_graphs = graphs[train_idx:]
+        val_graphs = graphs[train_idx: test_idx]
+        test_graphs = graphs[test_idx:]
     else:
-        train_graphs = graphs
+        train_idx = int(len(graphs) * args.train_ratio)
+        train_graphs = graphs[:train_idx]
+        val_graphs = graph[train_idx:]
     print('Num training graphs: ', len(train_graphs), 
+          '; Num validation graphs: ', len(val_graphs),
           '; Num testing graphs: ', len(test_graphs))
 
     print('Number of graphs: ', len(graphs))
@@ -119,6 +124,13 @@ def prepare_data(graphs, args, test_graphs=None):
             shuffle=True,
             num_workers=args.num_workers)
 
+    dataset_sampler = GraphSampler(val_graphs, normalize=False)
+    val_dataset_loader = torch.utils.data.DataLoader(
+            dataset_sampler, 
+            batch_size=args.batch_size, 
+            shuffle=False,
+            num_workers=args.num_workers)
+
     dataset_sampler = GraphSampler(test_graphs, normalize=False)
     test_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
@@ -126,7 +138,7 @@ def prepare_data(graphs, args, test_graphs=None):
             shuffle=False,
             num_workers=args.num_workers)
 
-    return train_dataset_loader, test_dataset_loader, dataset_sampler.max_num_nodes
+    return train_dataset_loader, val_dataset_loader, test_dataset_loader, dataset_sampler.max_num_nodes
 
 def synthetic_task1(args, export_graphs=False):
 
@@ -148,13 +160,15 @@ def synthetic_task1(args, export_graphs=False):
     graphs = graphs1 + graphs2
 
     
-    train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
+    train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
     if args.method == 'soft-assign':
+        print('Method: soft-assign')
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
                 args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio).cuda()
     else:
+        print('Method: base')
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
                 args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
@@ -203,7 +217,7 @@ def benchmark_task(args, feat=None):
             featgen_const.gen_node_features(G)
         input_dim = args.input_dim
 
-    train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
+    train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
     model = encoders.GcnEncoderGraph(
             input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
@@ -269,6 +283,7 @@ def arg_parse():
                         batch_size=20,
                         num_epochs=70,
                         train_ratio=0.8,
+                        test_ratio=0.1,
                         num_workers=1,
                         input_dim=10,
                         hidden_dim=20,
