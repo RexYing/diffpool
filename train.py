@@ -53,9 +53,12 @@ def gen_train_plt_name(args):
         name = 'results/' + args.bmname
     else:
         name = 'results/' + 'syn'
+    name += '_' + args.method
     name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
-    name += '_' + args.name_suffix + '.png'
+    if len(args.name_suffix) > 0:
+        name += '_' + args.name_suffix
+    name += '.png'
     return name
 
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None):
@@ -102,11 +105,11 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         train_accs.append(result['acc'])
         train_epochs.append(epoch)
         if val_dataset is not None:
-            result = evaluate(val_dataset, model, args, name='Validation')
-        if result['acc'] > best_val_result['acc'] - 1e-7:
-            best_val_result['acc'] = result['acc']
+            val_result = evaluate(val_dataset, model, args, name='Validation')
+        if val_result['acc'] > best_val_result['acc'] - 1e-7:
+            best_val_result['acc'] = val_result['acc']
             best_val_result['epoch'] = epoch
-            best_val_result['loss'] = loss.data[0]
+            best_val_result['loss'] = avg_loss
             test_result = evaluate(test_dataset, model, args, name='Test')
             test_result['epoch'] = epoch
         print('Best val result: ', best_val_result)
@@ -119,7 +122,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
     from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
     from matplotlib.figure import Figure
     plt.switch_backend('agg')
-    plt.plot(train_epochs, util.exp_moving_avg(train_accs), '-', lw=1)
+    plt.plot(train_epochs, util.exp_moving_avg(train_accs, 0.85), '-', lw=1)
     plt.plot(best_val_epochs, best_val_accs, 'bo', test_epochs, test_accs, 'go')
     plt.legend(['train', 'val', 'test'])
     plt.savefig(gen_train_plt_name(args), dpi=600)
@@ -202,12 +205,12 @@ def synthetic_task1(args, export_graphs=False):
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
                 args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
-                args.hidden_dim, assign_ratio=args.assign_ratio).cuda()
+                args.hidden_dim, assign_ratio=args.assign_ratio, bn=args.bn).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
-                args.num_gc_layers).cuda()
-    train(train_dataset, model, args, test_dataset=test_dataset)
+                args.num_gc_layers, bn=args.bn).cuda()
+    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, "Validation")
 
 def pkl_task(args, feat=None):
@@ -232,7 +235,8 @@ def pkl_task(args, feat=None):
 
     train_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args, test_graphs=test_graphs)
     model = encoders.GcnEncoderGraph(
-            args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers).cuda()
+            args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
+            args.num_gc_layers, bn=args.bn).cuda()
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
@@ -254,9 +258,18 @@ def benchmark_task(args, feat=None):
         input_dim = args.input_dim
 
     train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
-    model = encoders.GcnEncoderGraph(
-            input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers).cuda()
-    train(train_dataset, model, args, test_dataset=test_dataset)
+    if args.method == 'soft-assign':
+        print('Method: soft-assign')
+        model = encoders.SoftPoolingGcnEncoder(
+                max_num_nodes, 
+                input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
+                args.hidden_dim, assign_ratio=args.assign_ratio, bn=args.bn, dropout=args.dropout).cuda()
+    else:
+        print('Method: base')
+        model = encoders.GcnEncoderGraph(
+                input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
+                args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
+    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
     
 def arg_parse():
@@ -305,6 +318,11 @@ def arg_parse():
             help='Number of label classes')
     parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
             help='Number of graph convolution layers before each pooling')
+    parser.add_argument('--bn', dest='bn', action='store_const',
+            const=True, default=False,
+            help='Whether batch normalization is used')
+    parser.add_argument('--dropout', dest='dropout', type=float,
+            help='Dropout rate.')
 
     parser.add_argument('--method', dest='method',
             help='Method. Possible values: base, soft-assign')
@@ -328,6 +346,7 @@ def arg_parse():
                         output_dim=30,
                         num_classes=2,
                         num_gc_layers=4,
+                        dropout=0.0,
                         method='base',
                         name_suffix='',
                         assign_ratio=0.25
