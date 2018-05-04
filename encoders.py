@@ -156,12 +156,12 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         self.conv_block_after_pool = []
         self.conv_last_after_pool = []
         for i in range(num_pooling):
-            conv_first2, conv_block2, conv_last2 = self.build_conv_layers(
+            self.conv_first2, self.conv_block2, self.conv_last2 = self.build_conv_layers(
                     self.pred_input_dim, hidden_dim, embedding_dim, num_layers, 
                     add_self, normalize=True, dropout=dropout)
-            self.conv_first_after_pool.append(conv_first2)
-            self.conv_block_after_pool.append(conv_block2)
-            self.conv_last_after_pool.append(conv_last2)
+            self.conv_first_after_pool.append(self.conv_first2)
+            self.conv_block_after_pool.append(self.conv_block2)
+            self.conv_last_after_pool.append(self.conv_last2)
 
         # assignment
         assign_dim = int(max_num_nodes * assign_ratio)
@@ -199,6 +199,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         
             embedding_tensor = self.gcn_forward(x, adj, 
                     self.conv_first_after_pool[i], self.conv_block_after_pool[i], self.conv_last_after_pool[i])
+                    #self.conv_first2, self.conv_block2, self.conv_last2)
 
             #out, _ = torch.max(embedding_tensor, dim=1)
             out = torch.mean(embedding_tensor, dim=1)
