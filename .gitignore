@@ -107,6 +107,8 @@ ENV/
 figs/
 results/
 tmp/
+log/
+runs/
 
 data/REDDIT-MULTI-12K/
 

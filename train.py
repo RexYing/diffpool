@@ -1,14 +1,16 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import sklearn.metrics as metrics
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from tensorboardX import SummaryWriter
 
 import argparse
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 import pickle
 import random
-import sklearn.metrics as metrics
+import shutil
 import time
 
 import encoders
@@ -17,6 +19,7 @@ import gen.data as datagen
 from graph_sampler import GraphSampler
 import load_data
 import util
+
 
 def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
     model.eval()
@@ -43,25 +46,25 @@ def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
               'recall': metrics.recall_score(labels, preds, average='macro'),
               'acc': metrics.accuracy_score(labels, preds),
               'F1': metrics.f1_score(labels, preds, average="micro")}
-    #print(name, " prec:", result['prec'])
-    #print(name, " recall:", result['recall'])
     print(name, " accuracy:", result['acc'])
     return result
 
-def gen_train_plt_name(args):
+def gen_prefix(args):
     if args.bmname is not None:
-        name = 'results/' + args.bmname
+        name = args.bmname
     else:
-        name = 'results/' + 'syn'
+        name = 'syn'
     name += '_' + args.method
     name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
     if len(args.name_suffix) > 0:
         name += '_' + args.name_suffix
-    name += '.png'
     return name
 
-def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None):
+def gen_train_plt_name(args):
+    return 'results/' + gen_prefix(args) + '.png'
+
+def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None):
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     iter = 0
@@ -100,6 +103,8 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
+        if writer is not None:
+            writer.add_scalar('loss/avg_loss', avg_loss, epoch)
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
         result = evaluate(dataset, model, args, name='Train', max_num_examples=100)
         train_accs.append(result['acc'])
@@ -112,6 +117,12 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             best_val_result['loss'] = avg_loss
             test_result = evaluate(test_dataset, model, args, name='Test')
             test_result['epoch'] = epoch
+        if writer is not None:
+            writer.add_scalar('acc/train_acc', result['acc'], epoch)
+            writer.add_scalar('acc/val_acc', val_result['acc'], epoch)
+            writer.add_scalar('loss/best_val_loss', best_val_result['loss'], epoch)
+            writer.add_scalar('acc/best_test_acc', val_result['acc'], epoch)
+
         print('Best val result: ', best_val_result)
         print('Test result: ', test_result)
         best_val_epochs.append(best_val_result['epoch'])
@@ -179,7 +190,7 @@ def prepare_data(graphs, args, test_graphs=None):
 
     return train_dataset_loader, val_dataset_loader, test_dataset_loader, dataset_sampler.max_num_nodes
 
-def synthetic_task1(args, export_graphs=False):
+def synthetic_task1(args, writer=None, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
@@ -197,7 +208,6 @@ def synthetic_task1(args, export_graphs=False):
         util.draw_graph_list(graphs2[:16], 4, 4, 'figs/ba2')
 
     graphs = graphs1 + graphs2
-
     
     train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
     if args.method == 'soft-assign':
@@ -210,7 +220,8 @@ def synthetic_task1(args, export_graphs=False):
         print('Method: base')
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
                 args.num_gc_layers, bn=args.bn).cuda()
-    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset)
+    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
+            writer=writer)
     evaluate(test_dataset, model, args, "Validation")
 
 def pkl_task(args, feat=None):
@@ -240,7 +251,7 @@ def pkl_task(args, feat=None):
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
-def benchmark_task(args, feat=None):
+def benchmark_task(args, writer=None, feat=None):
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
     
     if 'feat_dim' in graphs[0].graph:
@@ -269,7 +280,8 @@ def benchmark_task(args, feat=None):
         model = encoders.GcnEncoderGraph(
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
                 args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
-    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset)
+    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
+            writer=writer)
     evaluate(test_dataset, model, args, 'Validation')
     
 def arg_parse():
@@ -290,6 +302,8 @@ def arg_parse():
 
     parser.add_argument('--datadir', dest='datadir',
             help='Directory where benchmark is located')
+    parser.add_argument('--logdir', dest='logdir',
+            help='Tensorboard log directory')
     parser.add_argument('--cuda', dest='cuda',
             help='CUDA.')
     parser.add_argument('--max-nodes', dest='max_nodes', type=int,
@@ -330,6 +344,7 @@ def arg_parse():
             help='suffix added to the output filename')
 
     parser.set_defaults(datadir='data',
+                        logdir='log',
                         dataset='synthetic1',
                         max_nodes=1000,
                         cuda='1',
@@ -356,15 +371,26 @@ def arg_parse():
 def main():
     prog_args = arg_parse()
 
+    # export scalar data to JSON for external processing
+    path = os.path.join(prog_args.logdir, gen_prefix(prog_args))
+    if os.path.isdir(path):
+        print('Remove existing log dir')
+        shutil.rmtree(path)
+    print('Log at: ', path)
+    writer = SummaryWriter(path)
+    #writer = None
+
     os.environ['CUDA_VISIBLE_DEVICES'] = prog_args.cuda
     print('CUDA', prog_args.cuda)
 
     if prog_args.bmname is not None:
-        benchmark_task(prog_args)
+        benchmark_task(prog_args, writer)
     elif prog_args.pkl_fname is not None:
         pkl_task(prog_args)
     elif prog_args.dataset is not None:
-        synthetic_task1(prog_args)
+        synthetic_task1(prog_args, writer)
+
+    writer.close()
 
 if __name__ == "__main__":
     main()
