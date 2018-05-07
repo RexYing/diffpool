@@ -171,7 +171,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
                 normalize=True)
         assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
-        self.assign_pred = self.build_pred_layers(assign_pred_input_dim, pred_hidden_dims, assign_dim)
+        self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim)
 
         for m in self.modules():
             if isinstance(m, GraphConv):
@@ -181,10 +181,10 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
     def forward(self, x, adj):
 
         out_all = []
-        assign_tensor = self.gcn_forward(x, adj, 
+        self.assign_tensor = self.gcn_forward(x, adj, 
                 self.assign_conv_first, self.assign_conv_block, self.assign_conv_last)
         # [batch_size x num_nodes x next_lvl_num_nodes]
-        assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(assign_tensor))
+        self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
         # [batch_size x num_nodes x embedding_dim]
         embedding_tensor = self.gcn_forward(x, adj,
                 self.conv_first, self.conv_block, self.conv_last)
@@ -194,8 +194,8 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         for i in range(self.num_pooling):
 
             # update pooled features and adj matrix
-            x = torch.matmul(torch.transpose(assign_tensor, 1, 2), embedding_tensor)
-            adj = torch.transpose(assign_tensor, 1, 2) @ adj @ assign_tensor
+            x = torch.matmul(torch.transpose(self.assign_tensor, 1, 2), embedding_tensor)
+            adj = torch.transpose(self.assign_tensor, 1, 2) @ adj @ self.assign_tensor
         
             embedding_tensor = self.gcn_forward(x, adj, 
                     self.conv_first_after_pool[i], self.conv_block_after_pool[i], self.conv_last_after_pool[i])

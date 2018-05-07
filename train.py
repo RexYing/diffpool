@@ -1,4 +1,7 @@
+import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
 import numpy as np
 import sklearn.metrics as metrics
 import torch
@@ -64,6 +67,18 @@ def gen_prefix(args):
 def gen_train_plt_name(args):
     return 'results/' + gen_prefix(args) + '.png'
 
+def log_assignment(assign_tensor, writer, epoch):
+    plt.switch_backend('agg')
+    fig = plt.figure()
+    plt.imshow(assign_tensor.cpu().data.numpy()[0], cmap=plt.get_cmap('BuPu'))
+    fig.canvas.draw()
+    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    cbar = plt.colorbar()
+    cbar.solids.set_edgecolor("face")
+    writer.add_image('assignment', data, epoch)
+
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None):
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
@@ -121,7 +136,9 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             writer.add_scalar('acc/train_acc', result['acc'], epoch)
             writer.add_scalar('acc/val_acc', val_result['acc'], epoch)
             writer.add_scalar('loss/best_val_loss', best_val_result['loss'], epoch)
-            writer.add_scalar('acc/best_test_acc', val_result['acc'], epoch)
+            writer.add_scalar('acc/test_acc', test_result['acc'], epoch)
+            if epoch % 10 == 0:
+                log_assignment(model.assign_tensor, writer, epoch)
 
         print('Best val result: ', best_val_result)
         print('Test result: ', test_result)
@@ -130,9 +147,8 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         test_epochs.append(test_result['epoch'])
         test_accs.append(test_result['acc'])
 
-    from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-    from matplotlib.figure import Figure
     plt.switch_backend('agg')
+    plt.figure()
     plt.plot(train_epochs, util.exp_moving_avg(train_accs, 0.85), '-', lw=1)
     plt.plot(best_val_epochs, best_val_accs, 'bo', test_epochs, test_accs, 'go')
     plt.legend(['train', 'val', 'test'])
@@ -215,7 +231,8 @@ def synthetic_task1(args, writer=None, export_graphs=False):
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
                 args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
-                args.hidden_dim, assign_ratio=args.assign_ratio, bn=args.bn).cuda()
+                args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
+                bn=args.bn).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
@@ -274,7 +291,8 @@ def benchmark_task(args, writer=None, feat=None):
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
-                args.hidden_dim, assign_ratio=args.assign_ratio, bn=args.bn, dropout=args.dropout).cuda()
+                args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
+                bn=args.bn, dropout=args.dropout).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(
@@ -298,6 +316,8 @@ def arg_parse():
     softpool_parser = parser.add_argument_group()
     softpool_parser.add_argument('--assign-ratio', dest='assign_ratio', type=float,
             help='ratio of number of nodes in consecutive layers')
+    softpool_parser.add_argument('--num-pool', dest='num_pool', type=int,
+            help='number of pooling layers')
     
 
     parser.add_argument('--datadir', dest='datadir',
@@ -364,7 +384,8 @@ def arg_parse():
                         dropout=0.0,
                         method='base',
                         name_suffix='',
-                        assign_ratio=0.25
+                        assign_ratio=0.25,
+                        num_pool=1
                        )
     return parser.parse_args()
 
