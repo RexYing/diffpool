@@ -58,7 +58,10 @@ def gen_prefix(args):
     else:
         name = 'syn'
     name += '_' + args.method
-    name += '_l' + str(args.num_gc_layers)
+    if args.method == 'soft-assign':
+        name += '_l' + str(args.num_gc_layers) + 'x' + str(args.num_pool)
+    else:
+        name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
     if len(args.name_suffix) > 0:
         name += '_' + args.name_suffix
@@ -69,14 +72,21 @@ def gen_train_plt_name(args):
 
 def log_assignment(assign_tensor, writer, epoch):
     plt.switch_backend('agg')
-    fig = plt.figure()
-    plt.imshow(assign_tensor.cpu().data.numpy()[0], cmap=plt.get_cmap('BuPu'))
+    fig = plt.figure(figsize=(15,10))
+    print(assign_tensor.size())
+
+    # has to be smaller than args.batch_size
+    batch_idx = [0, 3, 6, 9]
+    for i in range(len(batch_idx)):
+        plt.subplot(2, 2, i+1)
+        plt.imshow(assign_tensor.cpu().data.numpy()[batch_idx[i]], cmap=plt.get_cmap('BuPu'))
+        cbar = plt.colorbar()
+        cbar.solids.set_edgecolor("face")
+    plt.tight_layout()
     fig.canvas.draw()
+
     data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-    cbar = plt.colorbar()
-    cbar.solids.set_edgecolor("face")
     writer.add_image('assignment', data, epoch)
 
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None):
@@ -102,11 +112,13 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         avg_loss = 0.0
         model.train()
         print('Epoch: ', epoch)
+        print(len(dataset))
         for batch_idx, data in enumerate(dataset):
             model.zero_grad()
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
+            batch_num_nodes = data['num_nodes'].int().numpy()
             ypred = model(h0, adj)
             loss = model.loss(ypred, label)
             loss.backward()
@@ -116,6 +128,10 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             avg_loss += loss.data[0]
             #if iter % 20 == 0:
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
+
+            # log once per batch
+            if batch_idx == 10 and writer is not None:
+                log_assignment(model.assign_tensor, writer, epoch)
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         if writer is not None:
@@ -137,8 +153,6 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             writer.add_scalar('acc/val_acc', val_result['acc'], epoch)
             writer.add_scalar('loss/best_val_loss', best_val_result['loss'], epoch)
             writer.add_scalar('acc/test_acc', test_result['acc'], epoch)
-            if epoch % 10 == 0:
-                log_assignment(model.assign_tensor, writer, epoch)
 
         print('Best val result: ', best_val_result)
         print('Test result: ', test_result)
@@ -378,9 +392,9 @@ def arg_parse():
                         num_workers=1,
                         input_dim=10,
                         hidden_dim=20,
-                        output_dim=30,
+                        output_dim=20,
                         num_classes=2,
-                        num_gc_layers=4,
+                        num_gc_layers=3,
                         dropout=0.0,
                         method='base',
                         name_suffix='',

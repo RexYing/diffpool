@@ -62,5 +62,6 @@ class GraphSampler(torch.utils.data.Dataset):
 
         return {'adj':adj_padded,
                 'feats':self.feature_all[idx].copy(),
-                'label':self.label_all[idx]}
+                'label':self.label_all[idx],
+                'num_nodes': num_nodes}
 
