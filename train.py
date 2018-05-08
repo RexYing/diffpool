@@ -32,9 +32,10 @@ def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
     for batch_idx, data in enumerate(dataset):
         adj = Variable(data['adj'].float(), requires_grad=False).cuda()
         h0 = Variable(data['feats'].float()).cuda()
-
         labels.append(data['label'].long().numpy())
-        ypred = model(h0, adj)
+        batch_num_nodes = data['num_nodes'].int().numpy()
+
+        ypred = model(h0, adj, batch_num_nodes)
         _, indices = torch.max(ypred, 1)
         preds.append(indices.cpu().data.numpy())
 
@@ -112,14 +113,13 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         avg_loss = 0.0
         model.train()
         print('Epoch: ', epoch)
-        print(len(dataset))
         for batch_idx, data in enumerate(dataset):
             model.zero_grad()
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
             batch_num_nodes = data['num_nodes'].int().numpy()
-            ypred = model(h0, adj)
+            ypred = model(h0, adj, batch_num_nodes)
             loss = model.loss(ypred, label)
             loss.backward()
             nn.utils.clip_grad_norm(model.parameters(), args.clip)
@@ -130,7 +130,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
 
             # log once per batch
-            if batch_idx == 10 and writer is not None:
+            if batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
                 log_assignment(model.assign_tensor, writer, epoch)
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
