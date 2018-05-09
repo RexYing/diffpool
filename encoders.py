@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch.nn import init
 import torch.nn.functional as F
 
+import numpy as np
+
 # GCN basic operation
 class GraphConv(nn.Module):
     def __init__(self, input_dim, output_dim, add_self=False, normalize_embedding=False, dropout=0.0):
@@ -83,6 +85,7 @@ class GcnEncoderGraph(nn.Module):
     def construct_mask(self, max_nodes, batch_num_nodes): 
         ''' For each num_nodes in batch_num_nodes, the first num_nodes entries of the 
         corresponding column are 1's, and the rest are 0's (to be masked out).
+        Dimension of mask: [batch_size x max_nodes x 1]
         '''
         # masks
         packed_masks = [torch.ones(int(num)) for num in batch_num_nodes]
@@ -168,18 +171,19 @@ class GcnEncoderGraph(nn.Module):
 class SoftPoolingGcnEncoder(GcnEncoderGraph):
     def __init__(self, max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
             assign_hidden_dim, assign_ratio=0.25, assign_num_layers=-1, num_pooling=1,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0):
+            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True):
         '''
         Args:
             num_layers: number of gc layers before each pooling
             num_nodes: number of nodes for each graph in batch
+            linkpred: flag to turn on link prediction side objective
         '''
 
         super(SoftPoolingGcnEncoder, self).__init__(input_dim, hidden_dim, embedding_dim, label_dim,
                 num_layers, pred_hidden_dims=pred_hidden_dims, concat=concat)
         add_self = not concat
         self.num_pooling = num_pooling
-
+        self.linkpred = linkpred
         
         # GC
         self.conv_first_after_pool = []
@@ -223,6 +227,8 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 embedding_mask)
         # [batch_size x num_nodes x next_lvl_num_nodes]
         self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
+        if embedding_mask is not None:
+            self.assign_tensor = self.assign_tensor * embedding_mask
         # [batch_size x num_nodes x embedding_dim]
         embedding_tensor = self.gcn_forward(x, adj,
                 self.conv_first, self.conv_block, self.conv_last, embedding_mask)
@@ -251,5 +257,29 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         ypred = self.pred_model(out)
         return ypred
 
+    def loss(self, pred, label, adj, batch_num_nodes):
+        ''' 
+        Args:
+            batch_num_nodes: numpy array of number of nodes in each graph in the minibatch.
+        '''
+        eps = 1e-7
+        loss = super(SoftPoolingGcnEncoder, self).loss(pred, label)
+        if self.linkpred:
+            max_num_nodes = adj.size()[1]
+            pred_adj = self.assign_tensor @ torch.transpose(self.assign_tensor, 1, 2) 
+            #self.link_loss = F.nll_loss(torch.log(pred_adj), adj)
+            self.link_loss = -adj * torch.log(pred_adj+eps) - (1-adj) * torch.log(1-pred_adj+eps)
+            if batch_num_nodes is None:
+                num_entries = max_num_nodes * max_num_nodes * adj.size()[0]
+                print('Warning: calculating link pred loss without masking')
+            else:
+                num_entries = np.sum(batch_num_nodes * batch_num_nodes)
+                embedding_mask = self.construct_mask(max_num_nodes, batch_num_nodes)
+                adj_mask = embedding_mask @ torch.transpose(embedding_mask, 1, 2)
+                self.link_loss[1-adj_mask.byte()] = 0.0
 
+            self.link_loss = torch.sum(self.link_loss) / float(num_entries)
+            #print('linkloss: ', self.link_loss)
+            return loss + self.link_loss
+        return loss
 

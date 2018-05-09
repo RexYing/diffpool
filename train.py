@@ -63,6 +63,8 @@ def gen_prefix(args):
     if args.method == 'soft-assign':
         name += '_l' + str(args.num_gc_layers) + 'x' + str(args.num_pool)
         name += '_ar' + str(int(args.assign_ratio*100))
+        if args.linkpred:
+            name += '_lp'
     else:
         name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
@@ -109,7 +111,8 @@ def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
     writer.add_image('graphs', data, epoch)
 
 
-def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None):
+def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None,
+        mask_nodes = True):
     writer_batch_idx = [0, 3, 6, 9]
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
@@ -138,14 +141,14 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
             label = Variable(data['label'].long()).cuda()
-            batch_num_nodes = data['num_nodes'].int().numpy()
+            batch_num_nodes = data['num_nodes'].int().numpy() if mask_nodes else None
             ypred = model(h0, adj, batch_num_nodes)
-            loss = model.loss(ypred, label)
+            loss = model.loss(ypred, label, adj, batch_num_nodes)
             loss.backward()
             nn.utils.clip_grad_norm(model.parameters(), args.clip)
             optimizer.step()
             iter += 1
-            avg_loss += loss.data[0]
+            avg_loss += loss
             #if iter % 20 == 0:
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
 
@@ -157,6 +160,8 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         elapsed = time.time() - begin_time
         if writer is not None:
             writer.add_scalar('loss/avg_loss', avg_loss, epoch)
+            if args.linkpred:
+                writer.add_scalar('loss/linkpred_loss', model.link_loss, epoch)
         print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
         result = evaluate(dataset, model, args, name='Train', max_num_examples=100)
         train_accs.append(result['acc'])
@@ -267,7 +272,7 @@ def synthetic_task1(args, writer=None, export_graphs=False):
                 max_num_nodes, 
                 args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
-                bn=args.bn).cuda()
+                bn=args.bn, linkpred=args.linkpred).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
@@ -328,7 +333,7 @@ def benchmark_task(args, writer=None, feat=None):
                 max_num_nodes, 
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
-                bn=args.bn, dropout=args.dropout).cuda()
+                bn=args.bn, dropout=args.dropout, linkpred=args.linkpred).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(
@@ -354,7 +359,10 @@ def arg_parse():
             help='ratio of number of nodes in consecutive layers')
     softpool_parser.add_argument('--num-pool', dest='num_pool', type=int,
             help='number of pooling layers')
-    
+    parser.add_argument('--linkpred', dest='linkpred', action='store_const',
+            const=True, default=False,
+            help='Whether link prediction side objective is used')
+
 
     parser.add_argument('--datadir', dest='datadir',
             help='Directory where benchmark is located')
@@ -388,8 +396,8 @@ def arg_parse():
             help='Number of label classes')
     parser.add_argument('--num-gc-layers', dest='num_gc_layers', type=int,
             help='Number of graph convolution layers before each pooling')
-    parser.add_argument('--bn', dest='bn', action='store_const',
-            const=True, default=False,
+    parser.add_argument('--nobn', dest='bn', action='store_const',
+            const=False, default=True,
             help='Whether batch normalization is used')
     parser.add_argument('--dropout', dest='dropout', type=float,
             help='Dropout rate.')
