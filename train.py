@@ -2,6 +2,7 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
+import networkx as nx
 import numpy as np
 import sklearn.metrics as metrics
 import torch
@@ -61,6 +62,7 @@ def gen_prefix(args):
     name += '_' + args.method
     if args.method == 'soft-assign':
         name += '_l' + str(args.num_gc_layers) + 'x' + str(args.num_pool)
+        name += '_ar' + str(int(args.assign_ratio*100))
     else:
         name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
@@ -71,13 +73,11 @@ def gen_prefix(args):
 def gen_train_plt_name(args):
     return 'results/' + gen_prefix(args) + '.png'
 
-def log_assignment(assign_tensor, writer, epoch):
+def log_assignment(assign_tensor, writer, epoch, batch_idx):
     plt.switch_backend('agg')
     fig = plt.figure(figsize=(15,10))
-    print(assign_tensor.size())
 
     # has to be smaller than args.batch_size
-    batch_idx = [0, 3, 6, 9]
     for i in range(len(batch_idx)):
         plt.subplot(2, 2, i+1)
         plt.imshow(assign_tensor.cpu().data.numpy()[batch_idx[i]], cmap=plt.get_cmap('BuPu'))
@@ -90,7 +90,27 @@ def log_assignment(assign_tensor, writer, epoch):
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     writer.add_image('assignment', data, epoch)
 
+def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
+    plt.switch_backend('agg')
+    fig = plt.figure(figsize=(15,10))
+
+    for i in range(len(batch_idx)):
+        plt.subplot(2, 2, i+1)
+        num_nodes = batch_num_nodes[i]
+        adj_matrix = adj[batch_idx[i], :num_nodes, :num_nodes].cpu().data.numpy()
+        G = nx.from_numpy_matrix(adj_matrix)
+        nx.draw(G, pos=nx.spring_layout(G), with_labels=True)
+
+    plt.tight_layout()
+    fig.canvas.draw()
+
+    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    writer.add_image('graphs', data, epoch)
+
+
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None):
+    writer_batch_idx = [0, 3, 6, 9]
     
     optimizer = torch.optim.Adam(filter(lambda p : p.requires_grad, model.parameters()), lr=0.001)
     iter = 0
@@ -131,7 +151,8 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
 
             # log once per batch
             if batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
-                log_assignment(model.assign_tensor, writer, epoch)
+                log_assignment(model.assign_tensor, writer, epoch, writer_batch_idx)
+                log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx)
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         if writer is not None:
@@ -294,6 +315,7 @@ def benchmark_task(args, writer=None, feat=None):
             for u in G.nodes():
                 G.node[u]['feat'] = G.node[u]['label']
     else:
+        print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
         for G in graphs:
             featgen_const.gen_node_features(G)
@@ -398,7 +420,7 @@ def arg_parse():
                         dropout=0.0,
                         method='base',
                         name_suffix='',
-                        assign_ratio=0.25,
+                        assign_ratio=0.1,
                         num_pool=1
                        )
     return parser.parse_args()
