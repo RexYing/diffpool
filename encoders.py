@@ -257,7 +257,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         ypred = self.pred_model(out)
         return ypred
 
-    def loss(self, pred, label, adj, batch_num_nodes):
+    def loss(self, pred, label, adj=None, batch_num_nodes=None):
         ''' 
         Args:
             batch_num_nodes: numpy array of number of nodes in each graph in the minibatch.

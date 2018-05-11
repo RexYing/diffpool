@@ -31,23 +31,31 @@ class GraphSampler(torch.utils.data.Dataset):
                     f[i,:] = G.node[u]['feat']
                 self.feature_all.append(f)
             elif features == 'id':
-                self.feature_all.append(np.identity(max_num_nodes))
+                self.feature_all.append(np.identity(self.max_num_nodes))
             elif features == 'deg':
                 degs = np.sum(np.array(adj), 1)
-                degs = np.expand_dims(np.pad(degs, [0, max_num_nodes - G.number_of_nodes()], 0),
+                degs = np.expand_dims(np.pad(degs, [0, self.max_num_nodes - G.number_of_nodes()], 0),
                                       axis=1)
                 self.feature_all.append(degs)
             elif features == 'struct':
                 degs = np.sum(np.array(adj), 1)
-                degs = np.expand_dims(np.pad(degs, [0, max_num_nodes - G.number_of_nodes()],
+                degs = np.expand_dims(np.pad(degs, [0, self.max_num_nodes - G.number_of_nodes()],
                                              'constant'),
                                       axis=1)
                 clusterings = np.array(list(nx.clustering(G).values()))
                 clusterings = np.expand_dims(np.pad(clusterings, 
-                                                    [0, max_num_nodes - G.number_of_nodes()],
+                                                    [0, self.max_num_nodes - G.number_of_nodes()],
                                                     'constant'),
                                              axis=1)
-                self.feature_all.append(np.hstack([degs, clusterings]))
+                g_feat = np.hstack([degs, clusterings])
+                if 'feat' in G.node[0]:
+                    node_feats = np.array([G.node[i]['feat'] for i in range(G.number_of_nodes())])
+                    node_feats = np.pad(node_feats, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),
+                                        'constant')
+                    g_feat = np.hstack([g_feat, node_feats])
+
+                self.feature_all.append(g_feat)
+                self.feat_dim = self.feature_all[0].shape[1]
 
     def __len__(self):
         return len(self.adj_all)

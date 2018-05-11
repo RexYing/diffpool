@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -58,7 +59,7 @@ def gen_prefix(args):
     if args.bmname is not None:
         name = args.bmname
     else:
-        name = 'syn'
+        name = args.dataset
     name += '_' + args.method
     if args.method == 'soft-assign':
         name += '_l' + str(args.num_gc_layers) + 'x' + str(args.num_pool)
@@ -77,7 +78,7 @@ def gen_train_plt_name(args):
 
 def log_assignment(assign_tensor, writer, epoch, batch_idx):
     plt.switch_backend('agg')
-    fig = plt.figure(figsize=(15,10))
+    fig = plt.figure(figsize=(8,6), dpi=300)
 
     # has to be smaller than args.batch_size
     for i in range(len(batch_idx)):
@@ -94,15 +95,18 @@ def log_assignment(assign_tensor, writer, epoch, batch_idx):
 
 def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
     plt.switch_backend('agg')
-    fig = plt.figure(figsize=(15,10))
+    fig = plt.figure(figsize=(8,6), dpi=300)
 
     for i in range(len(batch_idx)):
         plt.subplot(2, 2, i+1)
-        num_nodes = batch_num_nodes[i]
+        num_nodes = batch_num_nodes[batch_idx[i]]
         adj_matrix = adj[batch_idx[i], :num_nodes, :num_nodes].cpu().data.numpy()
         G = nx.from_numpy_matrix(adj_matrix)
-        nx.draw(G, pos=nx.spring_layout(G), with_labels=True)
+        nx.draw(G, pos=nx.spring_layout(G), with_labels=True, node_color='#336699',
+                edge_color='grey', width=0.5, node_size=300,
+                alpha=0.7)
 
+    plt.xticks([])
     plt.tight_layout()
     fig.canvas.draw()
 
@@ -143,7 +147,10 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             label = Variable(data['label'].long()).cuda()
             batch_num_nodes = data['num_nodes'].int().numpy() if mask_nodes else None
             ypred = model(h0, adj, batch_num_nodes)
-            loss = model.loss(ypred, label, adj, batch_num_nodes)
+            if args.method == 'base' or not args.linkpred:
+                loss = model.loss(ypred, label)
+            else:
+                loss = model.loss(ypred, label, adj, batch_num_nodes)
             loss.backward()
             nn.utils.clip_grad_norm(model.parameters(), args.clip)
             optimizer.step()
@@ -153,7 +160,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
 
             # log once per batch
-            if batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
+            if epoch % 5 == 0 and batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
                 log_assignment(model.assign_tensor, writer, epoch, writer_batch_idx)
                 log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx)
         avg_loss /= batch_idx + 1
@@ -187,6 +194,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         test_epochs.append(test_result['epoch'])
         test_accs.append(test_result['acc'])
 
+    matplotlib.style.use('seaborn')
     plt.switch_backend('agg')
     plt.figure()
     plt.plot(train_epochs, util.exp_moving_avg(train_accs, 0.85), '-', lw=1)
@@ -194,6 +202,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
     plt.legend(['train', 'val', 'test'])
     plt.savefig(gen_train_plt_name(args), dpi=600)
     plt.close()
+    matplotlib.style.use('default')
 
     return model
 
@@ -244,9 +253,10 @@ def prepare_data(graphs, args, test_graphs=None):
             shuffle=False,
             num_workers=args.num_workers)
 
-    return train_dataset_loader, val_dataset_loader, test_dataset_loader, dataset_sampler.max_num_nodes
+    return train_dataset_loader, val_dataset_loader, test_dataset_loader, \
+            dataset_sampler.max_num_nodes, dataset_sampler.feat_dim
 
-def synthetic_task1(args, writer=None, export_graphs=False):
+def syn_community1v2(args, writer=None, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
@@ -265,21 +275,54 @@ def synthetic_task1(args, writer=None, export_graphs=False):
 
     graphs = graphs1 + graphs2
     
-    train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
+    train_dataset, val_dataset, test_dataset, max_num_nodes, input_dim = prepare_data(graphs, args)
     if args.method == 'soft-assign':
         print('Method: soft-assign')
         model = encoders.SoftPoolingGcnEncoder(
                 max_num_nodes, 
-                args.input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
+                input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
                 bn=args.bn, linkpred=args.linkpred).cuda()
     else:
         print('Method: base')
-        model = encoders.GcnEncoderGraph(args.input_dim, args.hidden_dim, args.output_dim, 2,
+        model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
                 args.num_gc_layers, bn=args.bn).cuda()
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
-    evaluate(test_dataset, model, args, "Validation")
+
+def syn_community2hier(args, writer=None):
+
+    # data
+    feat_gen = [featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))]
+    graphs1 = datagen.gen_2hier(1000, [2,4], range(40,50), range(4,5), 0.2, 0.05, feat_gen)
+    graphs2 = datagen.gen_2hier(1000, [3,3], range(40,50), range(4,5), 0.2, 0.05, feat_gen)
+    graphs3 = datagen.gen_2community_ba(range(120, 150), range(4,7), 1000, 0.25, feat_gen)
+
+    for G in graphs1:
+        G.graph['label'] = 0
+    for G in graphs2:
+        G.graph['label'] = 1
+    for G in graphs3:
+        G.graph['label'] = 2
+
+    graphs = graphs1 + graphs2 + graphs3
+
+    train_dataset, val_dataset, test_dataset, max_num_nodes, input_dim = prepare_data(graphs, args)
+
+    if args.method == 'soft-assign':
+        print('Method: soft-assign')
+        model = encoders.SoftPoolingGcnEncoder(
+                max_num_nodes, 
+                input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
+                args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
+                bn=args.bn, linkpred=args.linkpred).cuda()
+    else:
+        print('Method: base')
+        model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
+                args.num_gc_layers, bn=args.bn).cuda()
+    train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
+            writer=writer)
+
 
 def pkl_task(args, feat=None):
     with open(os.path.join(args.datadir, args.pkl_fname), 'rb') as pkl_file:
@@ -308,25 +351,24 @@ def pkl_task(args, feat=None):
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
-def benchmark_task(args, writer=None, feat=None):
+def benchmark_task(args, writer=None, feat='node-label'):
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
     
     if 'feat_dim' in graphs[0].graph:
         print('Using node features')
         input_dim = graphs[0].graph['feat_dim']
-    elif feat == 'node-label':
+    elif feat == 'node-label' and 'label' in graphs[0].node[0]:
         print('Using node labels')
         for G in graphs:
             for u in G.nodes():
-                G.node[u]['feat'] = G.node[u]['label']
+                G.node[u]['feat'] = np.array([G.node[u]['label']])
     else:
         print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
         for G in graphs:
             featgen_const.gen_node_features(G)
-        input_dim = args.input_dim
 
-    train_dataset, val_dataset, test_dataset, max_num_nodes = prepare_data(graphs, args)
+    train_dataset, val_dataset, test_dataset, max_num_nodes, input_dim = prepare_data(graphs, args)
     if args.method == 'soft-assign':
         print('Method: soft-assign')
         model = encoders.SoftPoolingGcnEncoder(
@@ -409,7 +451,7 @@ def arg_parse():
 
     parser.set_defaults(datadir='data',
                         logdir='log',
-                        dataset='synthetic1',
+                        dataset='syn1v2',
                         max_nodes=1000,
                         cuda='1',
                         feature_type='default',
@@ -453,7 +495,10 @@ def main():
     elif prog_args.pkl_fname is not None:
         pkl_task(prog_args)
     elif prog_args.dataset is not None:
-        synthetic_task1(prog_args, writer)
+        if prog_args.dataset == 'syn1v2':
+            syn_community1v2(prog_args, writer)
+        if prog_args.dataset == 'syn2hier':
+            syn_community2hier(prog_args, writer)
 
     writer.close()
 
