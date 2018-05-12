@@ -98,15 +98,15 @@ def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
     fig = plt.figure(figsize=(8,6), dpi=300)
 
     for i in range(len(batch_idx)):
-        plt.subplot(2, 2, i+1)
+        ax = plt.subplot(2, 2, i+1)
         num_nodes = batch_num_nodes[batch_idx[i]]
         adj_matrix = adj[batch_idx[i], :num_nodes, :num_nodes].cpu().data.numpy()
         G = nx.from_numpy_matrix(adj_matrix)
         nx.draw(G, pos=nx.spring_layout(G), with_labels=True, node_color='#336699',
                 edge_color='grey', width=0.5, node_size=300,
                 alpha=0.7)
+        ax.xaxis.set_visible(False)
 
-    plt.xticks([])
     plt.tight_layout()
     fig.canvas.draw()
 
@@ -294,9 +294,9 @@ def syn_community2hier(args, writer=None):
 
     # data
     feat_gen = [featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))]
-    graphs1 = datagen.gen_2hier(1000, [2,4], range(40,50), range(4,5), 0.2, 0.05, feat_gen)
-    graphs2 = datagen.gen_2hier(1000, [3,3], range(40,50), range(4,5), 0.2, 0.05, feat_gen)
-    graphs3 = datagen.gen_2community_ba(range(120, 150), range(4,7), 1000, 0.25, feat_gen)
+    graphs1 = datagen.gen_2hier(1000, [2,4], 10, range(4,5), 0.1, 0.03, feat_gen)
+    graphs2 = datagen.gen_2hier(1000, [3,3], 10, range(4,5), 0.1, 0.03, feat_gen)
+    graphs3 = datagen.gen_2community_ba(range(28, 33), range(4,7), 1000, 0.25, feat_gen)
 
     for G in graphs1:
         G.graph['label'] = 0
@@ -458,7 +458,7 @@ def arg_parse():
                         lr=0.001,
                         clip=2.0,
                         batch_size=20,
-                        num_epochs=70,
+                        num_epochs=1000,
                         train_ratio=0.8,
                         test_ratio=0.1,
                         num_workers=1,

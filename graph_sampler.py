@@ -6,7 +6,7 @@ import torch.utils.data
 class GraphSampler(torch.utils.data.Dataset):
     ''' Sample graphs and nodes in graph
     '''
-    def __init__(self, G_list, features='default', normalize=True):
+    def __init__(self, G_list, features='struct', normalize=True):
         self.adj_all = []
         self.len_all = []
         self.feature_all = []

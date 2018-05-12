@@ -43,12 +43,19 @@ def read_graphfile(datadir, dataname, max_nodes=None):
     except IOError:
         print('No node attributes')
        
+    label_has_zero = False
     filename_graphs=prefix + '_graph_labels.txt'
     graph_labels=[]
     with open(filename_graphs) as f:
         for line in f:
             line=line.strip("\n")
-            graph_labels.append(int(line) - 1)
+            val = int(line)
+            if val == 0:
+                label_has_zero = True
+            graph_labels.append(val - 1)
+    graph_labels = np.array(graph_labels)
+    if label_has_zero:
+        graph_labels += 1
     
     filename_adj=prefix + '_A.txt'
     adj_list={i:[] for i in range(1,len(graph_labels)+1)}    
