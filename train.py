@@ -256,7 +256,7 @@ def prepare_data(graphs, args, test_graphs=None):
     return train_dataset_loader, val_dataset_loader, test_dataset_loader, \
             dataset_sampler.max_num_nodes, dataset_sampler.feat_dim
 
-def syn_community1v2(args, writer=None, export_graphs=False):
+def syn_community1v2(args, model_class, writer=None, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
@@ -283,10 +283,15 @@ def syn_community1v2(args, writer=None, export_graphs=False):
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
                 bn=args.bn, linkpred=args.linkpred).cuda()
+    elif args.method == 'base-set2set':
+        print('Method: base-set2set')
+        model = encoders.GcnSet2SetEncoder(input_dim, args.hidden_dim, args.output_dim, 2,
+                args.num_gc_layers, bn=args.bn).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
                 args.num_gc_layers, bn=args.bn).cuda()
+
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
 
@@ -316,6 +321,10 @@ def syn_community2hier(args, writer=None):
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
                 bn=args.bn, linkpred=args.linkpred).cuda()
+    elif args.method == 'base-set2set':
+        print('Method: base-set2set')
+        model = encoders.GcnSet2SetEncoder(input_dim, args.hidden_dim, args.output_dim, 2,
+                args.num_gc_layers, bn=args.bn).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
@@ -376,11 +385,17 @@ def benchmark_task(args, writer=None, feat='node-label'):
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
                 bn=args.bn, dropout=args.dropout, linkpred=args.linkpred).cuda()
+    elif args.method == 'base-set2set':
+        print('Method: base-set2set')
+        model = encoders.GcnSet2SetEncoder(
+                input_dim, args.hidden_dim, args.output_dim, args.num_classes,
+                args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
                 args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
+
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
     evaluate(test_dataset, model, args, 'Validation')
@@ -445,7 +460,7 @@ def arg_parse():
             help='Dropout rate.')
 
     parser.add_argument('--method', dest='method',
-            help='Method. Possible values: base, soft-assign')
+            help='Method. Possible values: base, base-set2set, soft-assign')
     parser.add_argument('--name-suffix', dest='name_suffix',
             help='suffix added to the output filename')
 
