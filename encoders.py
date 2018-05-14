@@ -252,7 +252,8 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         for m in self.modules():
             if isinstance(m, GraphConv):
                 m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
-                m.bias.data = init.constant(m.bias.data, 0.0)
+                if m.bias is not None:
+                    m.bias.data = init.constant(m.bias.data, 0.0)
 
     def forward(self, x, adj, batch_num_nodes):
         # mask
