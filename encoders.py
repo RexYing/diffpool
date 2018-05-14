@@ -31,7 +31,9 @@ class GraphConv(nn.Module):
         y = torch.matmul(adj, x)
         if self.add_self:
             y += x
-        y = torch.matmul(y,self.weight) + self.bias
+        y = torch.matmul(y,self.weight)
+        if self.bias is not None:
+            y = y + self.bias
         if self.normalize_embedding:
             y = F.normalize(y, p=2, dim=2)
             #print(y[0][0])
@@ -39,12 +41,16 @@ class GraphConv(nn.Module):
 
 class GcnEncoderGraph(nn.Module):
     def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0):
+            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, args=None):
         super(GcnEncoderGraph, self).__init__()
         self.concat = concat
         add_self = not concat
         self.bn = bn
         self.num_layers = num_layers
+
+        self.bias = True
+        if args is not None:
+            self.bias = args.bias
 
         self.conv_first, self.conv_block, self.conv_last = self.build_conv_layers(
                 input_dim, hidden_dim, embedding_dim, num_layers, 
@@ -60,18 +66,19 @@ class GcnEncoderGraph(nn.Module):
         for m in self.modules():
             if isinstance(m, GraphConv):
                 m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
-                m.bias.data = init.constant(m.bias.data, 0.0)
+                if m.bias is not None:
+                    m.bias.data = init.constant(m.bias.data, 0.0)
 
     def build_conv_layers(self, input_dim, hidden_dim, embedding_dim, num_layers, add_self,
             normalize=False, dropout=0.0):
         conv_first = GraphConv(input_dim=input_dim, output_dim=hidden_dim, add_self=add_self,
-                normalize_embedding=normalize)
+                normalize_embedding=normalize, bias=self.bias)
         conv_block = nn.ModuleList(
                 [GraphConv(input_dim=hidden_dim, output_dim=hidden_dim, add_self=add_self,
-                        normalize_embedding=normalize, dropout=dropout) 
+                        normalize_embedding=normalize, dropout=dropout, bias=self.bias) 
                  for i in range(num_layers-2)])
         conv_last = GraphConv(input_dim=hidden_dim, output_dim=embedding_dim, add_self=add_self,
-                normalize_embedding=normalize)
+                normalize_embedding=normalize, bias=self.bias)
         return conv_first, conv_block, conv_last
 
     def build_pred_layers(self, pred_input_dim, pred_hidden_dims, label_dim):
@@ -181,9 +188,9 @@ class GcnEncoderGraph(nn.Module):
 
 class GcnSet2SetEncoder(GcnEncoderGraph):
     def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0):
+            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, args=None):
         super(GcnSet2SetEncoder, self).__init__(input_dim, hidden_dim, embedding_dim, label_dim,
-                num_layers, pred_hidden_dims, concat, bn, dropout)
+                num_layers, pred_hidden_dims, concat, bn, dropout, args=args)
         self.s2s = Set2Set(self.pred_input_dim, self.pred_input_dim * 2)
 
     def forward(self, x, adj, batch_num_nodes=None):
@@ -205,7 +212,7 @@ class GcnSet2SetEncoder(GcnEncoderGraph):
 class SoftPoolingGcnEncoder(GcnEncoderGraph):
     def __init__(self, max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
             assign_hidden_dim, assign_ratio=0.25, assign_num_layers=-1, num_pooling=1,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True):
+            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True, args=None):
         '''
         Args:
             num_layers: number of gc layers before each pooling
@@ -214,7 +221,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         '''
 
         super(SoftPoolingGcnEncoder, self).__init__(input_dim, hidden_dim, embedding_dim, label_dim,
-                num_layers, pred_hidden_dims=pred_hidden_dims, concat=concat)
+                num_layers, pred_hidden_dims=pred_hidden_dims, concat=concat, args=args)
         add_self = not concat
         self.num_pooling = num_pooling
         self.linkpred = linkpred

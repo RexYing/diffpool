@@ -69,6 +69,8 @@ def gen_prefix(args):
     else:
         name += '_l' + str(args.num_gc_layers)
     name += '_h' + str(args.hidden_dim) + '_o' + str(args.output_dim)
+    if not args.bias:
+        name += '_nobias'
     if len(args.name_suffix) > 0:
         name += '_' + args.name_suffix
     return name
@@ -320,15 +322,15 @@ def syn_community2hier(args, writer=None):
                 max_num_nodes, 
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
-                bn=args.bn, linkpred=args.linkpred).cuda()
+                bn=args.bn, linkpred=args.linkpred, args=args).cuda()
     elif args.method == 'base-set2set':
         print('Method: base-set2set')
         model = encoders.GcnSet2SetEncoder(input_dim, args.hidden_dim, args.output_dim, 2,
-                args.num_gc_layers, bn=args.bn).cuda()
+                args.num_gc_layers, bn=args.bn, args=args).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
-                args.num_gc_layers, bn=args.bn).cuda()
+                args.num_gc_layers, bn=args.bn, args=args).cuda()
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
 
@@ -384,17 +386,17 @@ def benchmark_task(args, writer=None, feat='node-label'):
                 max_num_nodes, 
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
                 args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
-                bn=args.bn, dropout=args.dropout, linkpred=args.linkpred).cuda()
+                bn=args.bn, dropout=args.dropout, linkpred=args.linkpred, args=args).cuda()
     elif args.method == 'base-set2set':
         print('Method: base-set2set')
         model = encoders.GcnSet2SetEncoder(
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes,
-                args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
+                args.num_gc_layers, bn=args.bn, dropout=args.dropout, args=args).cuda()
     else:
         print('Method: base')
         model = encoders.GcnEncoderGraph(
                 input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
-                args.num_gc_layers, bn=args.bn, dropout=args.dropout).cuda()
+                args.num_gc_layers, bn=args.bn, dropout=args.dropout, args=args).cuda()
 
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
@@ -458,6 +460,9 @@ def arg_parse():
             help='Whether batch normalization is used')
     parser.add_argument('--dropout', dest='dropout', type=float,
             help='Dropout rate.')
+    parser.add_argument('--nobias', dest='bias', action='store_const',
+            const=False, default=True,
+            help='Whether to add bias. Default to True.')
 
     parser.add_argument('--method', dest='method',
             help='Method. Possible values: base, base-set2set, soft-assign')
