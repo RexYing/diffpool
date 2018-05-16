@@ -6,13 +6,18 @@ import torch.utils.data
 class GraphSampler(torch.utils.data.Dataset):
     ''' Sample graphs and nodes in graph
     '''
-    def __init__(self, G_list, features='default', normalize=True):
+    def __init__(self, G_list, features='default', normalize=True, assign_feat='default', max_num_nodes=0):
         self.adj_all = []
         self.len_all = []
         self.feature_all = []
         self.label_all = []
+        
+        self.assign_feat_all = []
 
-        self.max_num_nodes = max([G.number_of_nodes() for G in G_list])
+        if max_num_nodes == 0:
+            self.max_num_nodes = max([G.number_of_nodes() for G in G_list])
+        else:
+            self.max_num_nodes = max_num_nodes
 
         if features == 'default':
             self.feat_dim = G_list[0].node[0]['feat'].shape[0]
@@ -55,7 +60,15 @@ class GraphSampler(torch.utils.data.Dataset):
                     g_feat = np.hstack([g_feat, node_feats])
 
                 self.feature_all.append(g_feat)
-                self.feat_dim = self.feature_all[0].shape[1]
+
+            if assign_feat == 'id':
+                self.assign_feat_all.append(
+                        np.hstack((np.identity(self.max_num_nodes), self.feature_all[-1])) )
+            else:
+                self.assign_feat_all.append(self.feature_all[-1])
+            
+        self.feat_dim = self.feature_all[0].shape[1]
+        self.assign_feat_dim = self.assign_feat_all[0].shape[1]
 
     def __len__(self):
         return len(self.adj_all)
@@ -71,5 +84,6 @@ class GraphSampler(torch.utils.data.Dataset):
         return {'adj':adj_padded,
                 'feats':self.feature_all[idx].copy(),
                 'label':self.label_all[idx],
-                'num_nodes': num_nodes}
+                'num_nodes': num_nodes,
+                'assign_feats':self.assign_feat_all[idx].copy()}
 

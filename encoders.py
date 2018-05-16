@@ -143,7 +143,7 @@ class GcnEncoderGraph(nn.Module):
             x_tensor = x_tensor * embedding_mask
         return x_tensor
 
-    def forward(self, x, adj, batch_num_nodes=None):
+    def forward(self, x, adj, batch_num_nodes=None, **kwargs):
         # mask
         max_num_nodes = adj.size()[1]
         if batch_num_nodes is not None:
@@ -193,7 +193,7 @@ class GcnSet2SetEncoder(GcnEncoderGraph):
                 num_layers, pred_hidden_dims, concat, bn, dropout, args=args)
         self.s2s = Set2Set(self.pred_input_dim, self.pred_input_dim * 2)
 
-    def forward(self, x, adj, batch_num_nodes=None):
+    def forward(self, x, adj, batch_num_nodes=None, **kwargs):
         # mask
         max_num_nodes = adj.size()[1]
         if batch_num_nodes is not None:
@@ -212,7 +212,8 @@ class GcnSet2SetEncoder(GcnEncoderGraph):
 class SoftPoolingGcnEncoder(GcnEncoderGraph):
     def __init__(self, max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
             assign_hidden_dim, assign_ratio=0.25, assign_num_layers=-1, num_pooling=1,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True, args=None):
+            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True,
+            assign_input_dim=-1, args=None):
         '''
         Args:
             num_layers: number of gc layers before each pooling
@@ -242,9 +243,11 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         # assignment
         if assign_num_layers == -1:
             assign_num_layers = num_layers
+        if assign_input_dim == -1:
+            assign_input_dim = input_dim
         assign_dim = int(max_num_nodes * assign_ratio)
         self.assign_conv_first, self.assign_conv_block, self.assign_conv_last = self.build_conv_layers(
-                input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
+                assign_input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
                 normalize=True)
         assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
         self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim)
@@ -255,7 +258,12 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 if m.bias is not None:
                     m.bias.data = init.constant(m.bias.data, 0.0)
 
-    def forward(self, x, adj, batch_num_nodes):
+    def forward(self, x, adj, batch_num_nodes, **kwargs):
+        if 'assign_x' in kwargs:
+            x_a = kwargs['assign_x']
+        else:
+            x_a = x
+
         # mask
         max_num_nodes = adj.size()[1]
         if batch_num_nodes is not None:
@@ -264,7 +272,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             embedding_mask = None
 
         out_all = []
-        self.assign_tensor = self.gcn_forward(x, adj, 
+        self.assign_tensor = self.gcn_forward(x_a, adj, 
                 self.assign_conv_first, self.assign_conv_block, self.assign_conv_last,
                 embedding_mask)
         # [batch_size x num_nodes x next_lvl_num_nodes]
