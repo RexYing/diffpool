@@ -96,7 +96,7 @@ def log_assignment(assign_tensor, writer, epoch, batch_idx):
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     writer.add_image('assignment', data, epoch)
 
-def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
+def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx, assign_tensor=None):
     plt.switch_backend('agg')
     fig = plt.figure(figsize=(8,6), dpi=300)
 
@@ -118,23 +118,51 @@ def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx):
     writer.add_image('graphs', data, epoch)
 
     # log a label-less version
+    #fig = plt.figure(figsize=(8,6), dpi=300)
+    #for i in range(len(batch_idx)):
+    #    ax = plt.subplot(2, 2, i+1)
+    #    num_nodes = batch_num_nodes[batch_idx[i]]
+    #    adj_matrix = adj[batch_idx[i], :num_nodes, :num_nodes].cpu().data.numpy()
+    #    G = nx.from_numpy_matrix(adj_matrix)
+    #    nx.draw(G, pos=nx.spring_layout(G), with_labels=False, node_color='#336699',
+    #            edge_color='grey', width=0.5, node_size=25,
+    #            alpha=0.8)
+
+    #plt.tight_layout()
+    #fig.canvas.draw()
+
+    #data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    #data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    #writer.add_image('graphs_no_label', data, epoch)
+
+    # colored according to assignment
+    assignment = assign_tensor.cpu().data.numpy()
     fig = plt.figure(figsize=(8,6), dpi=300)
+
+    num_clusters = assignment.shape[2]
+    all_colors = np.array(range(num_clusters))
+
     for i in range(len(batch_idx)):
         ax = plt.subplot(2, 2, i+1)
         num_nodes = batch_num_nodes[batch_idx[i]]
         adj_matrix = adj[batch_idx[i], :num_nodes, :num_nodes].cpu().data.numpy()
+
+        label = np.argmax(assignment[batch_idx[i]], axis=1).astype(int)
+        label = label[: batch_num_nodes[batch_idx[i]]]
+        node_colors = all_colors[label]
+
         G = nx.from_numpy_matrix(adj_matrix)
-        nx.draw(G, pos=nx.spring_layout(G), with_labels=False, node_color='#336699',
-                edge_color='grey', width=0.5, node_size=25,
+        nx.draw(G, pos=nx.spring_layout(G), with_labels=False, node_color=node_colors,
+                edge_color='grey', width=0.4, node_size=50, cmap=plt.get_cmap('Set1'),
+                vmin=0, vmax=num_clusters-1,
                 alpha=0.8)
-        ax.xaxis.set_visible(False)
 
     plt.tight_layout()
     fig.canvas.draw()
 
     data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    writer.add_image('graphs_no_label', data, epoch)
+    writer.add_image('graphs_colored', data, epoch)
 
 
 def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=None, writer=None,
@@ -186,7 +214,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             # log once per XX epochs
             if epoch % 10 == 0 and batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
                 log_assignment(model.assign_tensor, writer, epoch, writer_batch_idx)
-                log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx)
+                log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx, model.assign_tensor)
         avg_loss /= batch_idx + 1
         elapsed = time.time() - begin_time
         if writer is not None:
@@ -230,7 +258,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
 
     return model
 
-def prepare_data(graphs, args, test_graphs=None):
+def prepare_data(graphs, args, test_graphs=None, max_nodes=0):
 
     if test_graphs is None:
         random.shuffle(graphs)
@@ -256,21 +284,21 @@ def prepare_data(graphs, args, test_graphs=None):
             "{0:.2f}".format(np.std([G.number_of_nodes() for G in graphs])))
 
     # minibatch
-    dataset_sampler = GraphSampler(train_graphs, normalize=False, max_num_nodes=args.max_nodes)
+    dataset_sampler = GraphSampler(train_graphs, normalize=False, max_num_nodes=max_nodes)
     train_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=True,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(val_graphs, normalize=False, max_num_nodes=args.max_nodes)
+    dataset_sampler = GraphSampler(val_graphs, normalize=False, max_num_nodes=max_nodes)
     val_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=False,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(test_graphs, normalize=False, max_num_nodes=args.max_nodes)
+    dataset_sampler = GraphSampler(test_graphs, normalize=False, max_num_nodes=max_nodes)
     test_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
@@ -280,7 +308,7 @@ def prepare_data(graphs, args, test_graphs=None):
     return train_dataset_loader, val_dataset_loader, test_dataset_loader, \
             dataset_sampler.max_num_nodes, dataset_sampler.feat_dim, dataset_sampler.assign_feat_dim
 
-def syn_community1v2(args, model_class, writer=None, export_graphs=False):
+def syn_community1v2(args, writer=None, export_graphs=False):
 
     # data
     graphs1 = datagen.gen_ba(range(40, 60), range(4, 5), 500, 
@@ -401,7 +429,8 @@ def benchmark_task(args, writer=None, feat='node-label'):
         for G in graphs:
             featgen_const.gen_node_features(G)
 
-    train_dataset, val_dataset, test_dataset, max_num_nodes, input_dim, assign_input_dim = prepare_data(graphs, args)
+    train_dataset, val_dataset, test_dataset, max_num_nodes, input_dim, assign_input_dim = \
+            prepare_data(graphs, args, max_nodes=args.max_nodes)
     if args.method == 'soft-assign':
         print('Method: soft-assign')
         model = encoders.SoftPoolingGcnEncoder(
@@ -533,14 +562,14 @@ def main():
     print('CUDA', prog_args.cuda)
 
     if prog_args.bmname is not None:
-        benchmark_task(prog_args, writer)
+        benchmark_task(prog_args, writer=writer)
     elif prog_args.pkl_fname is not None:
         pkl_task(prog_args)
     elif prog_args.dataset is not None:
         if prog_args.dataset == 'syn1v2':
-            syn_community1v2(prog_args, writer)
+            syn_community1v2(prog_args, writer=writer)
         if prog_args.dataset == 'syn2hier':
-            syn_community2hier(prog_args, writer)
+            syn_community2hier(prog_args, writer=writer)
 
     writer.close()
 
