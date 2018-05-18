@@ -109,6 +109,7 @@ results/
 tmp/
 log/
 runs/
+vis/
 
 data/REDDIT-MULTI-12K/
 data/COLLAB
