@@ -29,6 +29,7 @@ def read_graphfile(datadir, dataname, max_nodes=None):
             for line in f:
                 line=line.strip("\n")
                 node_labels+=[int(line) - 1]
+        num_unique_node_labels = max(node_labels) + 1
     except IOError:
         print('No node labels')
  
@@ -82,7 +83,10 @@ def read_graphfile(datadir, dataname, max_nodes=None):
         G.graph['label'] = graph_labels[i-1]
         for u in G.nodes():
             if len(node_labels) > 0:
-                G.node[u]['label'] = node_labels[u-1]
+                node_label_one_hot = [0] * num_unique_node_labels
+                node_label = node_labels[u-1]
+                node_label_one_hot[node_label] = 1
+                G.node[u]['label'] = node_label_one_hot
             if len(node_attrs) > 0:
                 G.node[u]['feat'] = node_attrs[u-1]
         if len(node_attrs) > 0:

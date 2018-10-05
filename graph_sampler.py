@@ -30,6 +30,7 @@ class GraphSampler(torch.utils.data.Dataset):
             self.adj_all.append(adj)
             self.len_all.append(G.number_of_nodes())
             self.label_all.append(G.graph['label'])
+            # feat matrix: max_num_nodes x feat_dim
             if features == 'default':
                 f = np.zeros((self.max_num_nodes, self.feat_dim), dtype=float)
                 for i,u in enumerate(G.nodes()):
@@ -37,16 +38,29 @@ class GraphSampler(torch.utils.data.Dataset):
                 self.feature_all.append(f)
             elif features == 'id':
                 self.feature_all.append(np.identity(self.max_num_nodes))
-            elif features == 'deg':
+            elif features == 'deg-num':
                 degs = np.sum(np.array(adj), 1)
                 degs = np.expand_dims(np.pad(degs, [0, self.max_num_nodes - G.number_of_nodes()], 0),
                                       axis=1)
                 self.feature_all.append(degs)
+            elif features == 'deg':
+                self.max_deg = 10
+                degs = np.sum(np.array(adj), 1).astype(int)
+                degs[degs>10] = 10
+                feat = np.zeros((len(degs), self.max_deg + 1))
+                feat[np.arange(len(degs)), degs] = 1
+                feat = np.pad(feat, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),
+                        'constant', constant_values=0)
+                self.feature_all.append(feat)
             elif features == 'struct':
-                degs = np.sum(np.array(adj), 1)
-                degs = np.expand_dims(np.pad(degs, [0, self.max_num_nodes - G.number_of_nodes()],
-                                             'constant'),
-                                      axis=1)
+                self.max_deg = 10
+                degs = np.sum(np.array(adj), 1).astype(int)
+                degs[degs>10] = 10
+                feat = np.zeros((len(degs), self.max_deg + 1))
+                feat[np.arange(len(degs)), degs] = 1
+                degs = np.pad(feat, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),
+                        'constant', constant_values=0)
+
                 clusterings = np.array(list(nx.clustering(G).values()))
                 clusterings = np.expand_dims(np.pad(clusterings, 
                                                     [0, self.max_num_nodes - G.number_of_nodes()],

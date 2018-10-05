@@ -284,21 +284,24 @@ def prepare_data(graphs, args, test_graphs=None, max_nodes=0):
             "{0:.2f}".format(np.std([G.number_of_nodes() for G in graphs])))
 
     # minibatch
-    dataset_sampler = GraphSampler(train_graphs, normalize=False, max_num_nodes=max_nodes)
+    dataset_sampler = GraphSampler(train_graphs, normalize=False, max_num_nodes=max_nodes,
+            features=args.feature_type)
     train_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=True,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(val_graphs, normalize=False, max_num_nodes=max_nodes)
+    dataset_sampler = GraphSampler(val_graphs, normalize=False, max_num_nodes=max_nodes,
+            features=args.feature_type)
     val_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
             shuffle=False,
             num_workers=args.num_workers)
 
-    dataset_sampler = GraphSampler(test_graphs, normalize=False, max_num_nodes=max_nodes)
+    dataset_sampler = GraphSampler(test_graphs, normalize=False, max_num_nodes=max_nodes,
+            features=args.feature_type)
     test_dataset_loader = torch.utils.data.DataLoader(
             dataset_sampler, 
             batch_size=args.batch_size, 
@@ -412,17 +415,17 @@ def pkl_task(args, feat=None):
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
-def benchmark_task(args, writer=None, feat='node-label'):
+def benchmark_task(args, writer=None, feat='node-feat'):
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
     
-    if 'feat_dim' in graphs[0].graph:
+    if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
         print('Using node features')
         input_dim = graphs[0].graph['feat_dim']
     elif feat == 'node-label' and 'label' in graphs[0].node[0]:
         print('Using node labels')
         for G in graphs:
             for u in G.nodes():
-                G.node[u]['feat'] = np.array([G.node[u]['label']])
+                G.node[u]['feat'] = np.array(G.node[u]['label'])
     else:
         print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
