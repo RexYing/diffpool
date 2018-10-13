@@ -19,8 +19,8 @@ class GraphSampler(torch.utils.data.Dataset):
         else:
             self.max_num_nodes = max_num_nodes
 
-        if features == 'default':
-            self.feat_dim = G_list[0].node[0]['feat'].shape[0]
+        #if features == 'default':
+        self.feat_dim = G_list[0].node[0]['feat'].shape[0]
 
         for G in G_list:
             adj = np.array(nx.to_numpy_matrix(G))
@@ -51,6 +51,13 @@ class GraphSampler(torch.utils.data.Dataset):
                 feat[np.arange(len(degs)), degs] = 1
                 feat = np.pad(feat, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),
                         'constant', constant_values=0)
+
+                f = np.zeros((self.max_num_nodes, self.feat_dim), dtype=float)
+                for i,u in enumerate(G.nodes()):
+                    f[i,:] = G.node[u]['feat']
+
+                feat = np.concatenate((feat, f), axis=1)
+
                 self.feature_all.append(feat)
             elif features == 'struct':
                 self.max_deg = 10

@@ -227,12 +227,12 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         train_epochs.append(epoch)
         if val_dataset is not None:
             val_result = evaluate(val_dataset, model, args, name='Validation')
-        if val_result['acc'] > best_val_result['acc'] - 1e-7 or epoch > args.num_epochs * 0.2:
+        if val_result['acc'] > best_val_result['acc'] - 1e-7:
             best_val_result['acc'] = val_result['acc']
             best_val_result['epoch'] = epoch
             best_val_result['loss'] = avg_loss
-            test_result = evaluate(test_dataset, model, args, name='Test')
-            test_result['epoch'] = epoch
+        test_result = evaluate(test_dataset, model, args, name='Test')
+        test_result['epoch'] = epoch
         if writer is not None:
             writer.add_scalar('acc/train_acc', result['acc'], epoch)
             writer.add_scalar('acc/val_acc', val_result['acc'], epoch)
@@ -415,7 +415,7 @@ def pkl_task(args, feat=None):
     train(train_dataset, model, args, test_dataset=test_dataset)
     evaluate(test_dataset, model, args, 'Validation')
 
-def benchmark_task(args, writer=None, feat='node-feat'):
+def benchmark_task(args, writer=None, feat='node-label'):
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
     
     if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
