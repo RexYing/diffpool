@@ -46,7 +46,7 @@ class GraphSampler(torch.utils.data.Dataset):
             elif features == 'deg':
                 self.max_deg = 10
                 degs = np.sum(np.array(adj), 1).astype(int)
-                degs[degs>10] = 10
+                degs[degs>max_deg] = max_deg
                 feat = np.zeros((len(degs), self.max_deg + 1))
                 feat[np.arange(len(degs)), degs] = 1
                 feat = np.pad(feat, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),

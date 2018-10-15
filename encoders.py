@@ -47,6 +47,7 @@ class GcnEncoderGraph(nn.Module):
         add_self = not concat
         self.bn = bn
         self.num_layers = num_layers
+        self.num_aggs=2
 
         self.bias = True
         if args is not None:
@@ -56,12 +57,14 @@ class GcnEncoderGraph(nn.Module):
                 input_dim, hidden_dim, embedding_dim, num_layers, 
                 add_self, normalize=True, dropout=dropout)
         self.act = nn.ReLU()
+        self.label_dim = label_dim
 
         if concat:
             self.pred_input_dim = hidden_dim * (num_layers - 1) + embedding_dim
         else:
             self.pred_input_dim = embedding_dim
-        self.pred_model = self.build_pred_layers(self.pred_input_dim, pred_hidden_dims, label_dim)
+        self.pred_model = self.build_pred_layers(self.pred_input_dim, pred_hidden_dims, 
+                label_dim, num_aggs=self.num_aggs)
 
         for m in self.modules():
             if isinstance(m, GraphConv):
@@ -81,8 +84,8 @@ class GcnEncoderGraph(nn.Module):
                 normalize_embedding=normalize, bias=self.bias)
         return conv_first, conv_block, conv_last
 
-    def build_pred_layers(self, pred_input_dim, pred_hidden_dims, label_dim):
-
+    def build_pred_layers(self, pred_input_dim, pred_hidden_dims, label_dim, num_aggs=1):
+        pred_input_dim = pred_input_dim * num_aggs
         if len(pred_hidden_dims) == 0:
             pred_model = nn.Linear(pred_input_dim, label_dim)
         else:
@@ -165,13 +168,16 @@ class GcnEncoderGraph(nn.Module):
             if self.bn:
                 x = self.apply_bn(x)
             out,_ = torch.max(x, dim=1)
-            #out = torch.sum(x, dim=1)
+            out_all.append(out)
+            out = torch.sum(x, dim=1)
             out_all.append(out)
         x = self.conv_last(x,adj)
         #x = self.act(x)
         out, _ = torch.max(x, dim=1)
-        #out = torch.sum(x, dim=1)
         out_all.append(out)
+        if self.num_aggs == 2:
+            out = torch.sum(x, dim=1)
+            out_all.append(out)
         if self.concat:
             output = torch.cat(out_all, dim=1)
         else:
@@ -180,9 +186,16 @@ class GcnEncoderGraph(nn.Module):
         #print(output.size())
         return ypred
 
-    def loss(self, pred, label):
+    def loss(self, pred, label, type='softmax'):
         # softmax + CE
-        return F.cross_entropy(pred, label, size_average=True)
+        if type == 'softmax':
+            return F.cross_entropy(pred, label, size_average=True)
+        elif type == 'margin':
+            batch_size = pred.size()[0]
+            label_onehot = torch.zeros(batch_size, self.label_dim).long().cuda()
+            label_onehot.scatter_(1, label.view(-1,1), 1)
+            return torch.nn.MultiLabelMarginLoss()(pred, label_onehot)
+            
         #return F.binary_cross_entropy(F.sigmoid(pred[:,0]), label.float())
 
 
@@ -212,7 +225,7 @@ class GcnSet2SetEncoder(GcnEncoderGraph):
 class SoftPoolingGcnEncoder(GcnEncoderGraph):
     def __init__(self, max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
             assign_hidden_dim, assign_ratio=0.25, assign_num_layers=-1, num_pooling=1,
-            pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, linkpred=True,
+            pred_hidden_dims=[50], concat=True, bn=True, dropout=0.0, linkpred=True,
             assign_input_dim=-1, args=None):
         '''
         Args:
@@ -250,7 +263,10 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 assign_input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
                 normalize=True)
         assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
-        self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim)
+        self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim, num_aggs=1)
+
+        self.pred_model = self.build_pred_layers(self.pred_input_dim * (num_pooling+1), pred_hidden_dims, 
+                label_dim, num_aggs=self.num_aggs)
 
         for m in self.modules():
             if isinstance(m, GraphConv):
@@ -283,8 +299,11 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         embedding_tensor = self.gcn_forward(x, adj,
                 self.conv_first, self.conv_block, self.conv_last, embedding_mask)
 
-        out = torch.mean(embedding_tensor, dim=1)
+        out, _ = torch.max(embedding_tensor, dim=1)
         out_all.append(out)
+        if self.num_aggs == 2:
+            out = torch.sum(embedding_tensor, dim=1)
+            out_all.append(out)
 
         for i in range(self.num_pooling):
             if batch_num_nodes is not None:
@@ -300,11 +319,18 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                     self.conv_first_after_pool[i], self.conv_block_after_pool[i],
                     self.conv_last_after_pool[i])
 
-            #out, _ = torch.max(embedding_tensor, dim=1)
-            out = torch.mean(embedding_tensor, dim=1)
+            out, _ = torch.max(embedding_tensor, dim=1)
             out_all.append(out)
+            if self.num_aggs == 2:
+                #out = torch.mean(embedding_tensor, dim=1)
+                out = torch.sum(embedding_tensor, dim=1)
+                out_all.append(out)
 
-        ypred = self.pred_model(out)
+        if self.concat:
+            output = torch.cat(out_all, dim=1)
+        else:
+            output = out
+        ypred = self.pred_model(output)
         return ypred
 
     def loss(self, pred, label, adj=None, batch_num_nodes=None):

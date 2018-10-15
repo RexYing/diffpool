@@ -18,6 +18,7 @@ import random
 import shutil
 import time
 
+import cross_val
 import encoders
 import gen.feat as featgen
 import gen.data as datagen
@@ -185,6 +186,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
     best_val_epochs = []
     test_accs = []
     test_epochs = []
+    val_accs = []
     for epoch in range(args.num_epochs):
         begin_time = time.time()
         avg_loss = 0.0
@@ -227,42 +229,49 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
         train_epochs.append(epoch)
         if val_dataset is not None:
             val_result = evaluate(val_dataset, model, args, name='Validation')
+            val_accs.append(val_result['acc'])
         if val_result['acc'] > best_val_result['acc'] - 1e-7:
             best_val_result['acc'] = val_result['acc']
             best_val_result['epoch'] = epoch
             best_val_result['loss'] = avg_loss
-        test_result = evaluate(test_dataset, model, args, name='Test')
-        test_result['epoch'] = epoch
+        if test_dataset is not None:
+            test_result = evaluate(test_dataset, model, args, name='Test')
+            test_result['epoch'] = epoch
         if writer is not None:
             writer.add_scalar('acc/train_acc', result['acc'], epoch)
             writer.add_scalar('acc/val_acc', val_result['acc'], epoch)
             writer.add_scalar('loss/best_val_loss', best_val_result['loss'], epoch)
-            writer.add_scalar('acc/test_acc', test_result['acc'], epoch)
+            if test_dataset is not None:
+                writer.add_scalar('acc/test_acc', test_result['acc'], epoch)
 
         print('Best val result: ', best_val_result)
-        print('Test result: ', test_result)
         best_val_epochs.append(best_val_result['epoch'])
         best_val_accs.append(best_val_result['acc'])
-        test_epochs.append(test_result['epoch'])
-        test_accs.append(test_result['acc'])
+        if test_dataset is not None:
+            print('Test result: ', test_result)
+            test_epochs.append(test_result['epoch'])
+            test_accs.append(test_result['acc'])
 
     matplotlib.style.use('seaborn')
     plt.switch_backend('agg')
     plt.figure()
     plt.plot(train_epochs, util.exp_moving_avg(train_accs, 0.85), '-', lw=1)
-    plt.plot(best_val_epochs, best_val_accs, 'bo', test_epochs, test_accs, 'go')
-    plt.legend(['train', 'val', 'test'])
+    if test_dataset is not None:
+        plt.plot(best_val_epochs, best_val_accs, 'bo', test_epochs, test_accs, 'go')
+        plt.legend(['train', 'val', 'test'])
+    else:
+        plt.plot(best_val_epochs, best_val_accs, 'bo')
+        plt.legend(['train', 'val'])
     plt.savefig(gen_train_plt_name(args), dpi=600)
     plt.close()
     matplotlib.style.use('default')
 
-    return model
+    return model, val_accs
 
 def prepare_data(graphs, args, test_graphs=None, max_nodes=0):
 
+    random.shuffle(graphs)
     if test_graphs is None:
-        random.shuffle(graphs)
-
         train_idx = int(len(graphs) * args.train_ratio)
         test_idx = int(len(graphs) * (1-args.test_ratio))
         train_graphs = graphs[:train_idx]
@@ -456,6 +465,57 @@ def benchmark_task(args, writer=None, feat='node-label'):
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
             writer=writer)
     evaluate(test_dataset, model, args, 'Validation')
+
+
+def benchmark_task_val(args, writer=None, feat='node-label'):
+    all_vals = []
+    graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
+    
+    if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
+        print('Using node features')
+        input_dim = graphs[0].graph['feat_dim']
+    elif feat == 'node-label' and 'label' in graphs[0].node[0]:
+        print('Using node labels')
+        for G in graphs:
+            for u in G.nodes():
+                G.node[u]['feat'] = np.array(G.node[u]['label'])
+    else:
+        print('Using constant labels')
+        featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
+        for G in graphs:
+            featgen_const.gen_node_features(G)
+
+    for i in range(10):
+        train_dataset, val_dataset, max_num_nodes, input_dim, assign_input_dim = \
+                cross_val.prepare_val_data(graphs, args, i, max_nodes=args.max_nodes)
+        if args.method == 'soft-assign':
+            print('Method: soft-assign')
+            model = encoders.SoftPoolingGcnEncoder(
+                    max_num_nodes, 
+                    input_dim, args.hidden_dim, args.output_dim, args.num_classes, args.num_gc_layers,
+                    args.hidden_dim, assign_ratio=args.assign_ratio, num_pooling=args.num_pool,
+                    bn=args.bn, dropout=args.dropout, linkpred=args.linkpred, args=args,
+                    assign_input_dim=assign_input_dim).cuda()
+        elif args.method == 'base-set2set':
+            print('Method: base-set2set')
+            model = encoders.GcnSet2SetEncoder(
+                    input_dim, args.hidden_dim, args.output_dim, args.num_classes,
+                    args.num_gc_layers, bn=args.bn, dropout=args.dropout, args=args).cuda()
+        else:
+            print('Method: base')
+            model = encoders.GcnEncoderGraph(
+                    input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
+                    args.num_gc_layers, bn=args.bn, dropout=args.dropout, args=args).cuda()
+
+        _, val_accs = train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=None,
+            writer=writer)
+        all_vals.append(np.array(val_accs))
+    all_vals = np.vstack(all_vals)
+    all_vals = np.mean(all_vals, axis=0)
+    print(all_vals)
+    print(np.max(all_vals))
+    print(np.argmax(all_vals))
+    
     
 def arg_parse():
     parser = argparse.ArgumentParser(description='GraphPool arguments.')
@@ -565,7 +625,7 @@ def main():
     print('CUDA', prog_args.cuda)
 
     if prog_args.bmname is not None:
-        benchmark_task(prog_args, writer=writer)
+        benchmark_task_val(prog_args, writer=writer)
     elif prog_args.pkl_fname is not None:
         pkl_task(prog_args)
     elif prog_args.dataset is not None:
