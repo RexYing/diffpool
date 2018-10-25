@@ -47,7 +47,7 @@ class GcnEncoderGraph(nn.Module):
         add_self = not concat
         self.bn = bn
         self.num_layers = num_layers
-        self.num_aggs=2
+        self.num_aggs=1
 
         self.bias = True
         if args is not None:
@@ -169,8 +169,9 @@ class GcnEncoderGraph(nn.Module):
                 x = self.apply_bn(x)
             out,_ = torch.max(x, dim=1)
             out_all.append(out)
-            out = torch.sum(x, dim=1)
-            out_all.append(out)
+            if self.num_aggs == 2:
+                out = torch.sum(x, dim=1)
+                out_all.append(out)
         x = self.conv_last(x,adj)
         #x = self.act(x)
         out, _ = torch.max(x, dim=1)
@@ -239,7 +240,8 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         add_self = not concat
         self.num_pooling = num_pooling
         self.linkpred = linkpred
-        
+        self.assign_ent = True
+
         # GC
         self.conv_first_after_pool = []
         self.conv_block_after_pool = []
@@ -254,16 +256,34 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             self.conv_last_after_pool.append(self.conv_last2)
 
         # assignment
+        assign_dims = []
         if assign_num_layers == -1:
             assign_num_layers = num_layers
         if assign_input_dim == -1:
             assign_input_dim = input_dim
+
+        self.assign_conv_first_modules = []
+        self.assign_conv_block_modules = []
+        self.assign_conv_last_modules = []
+        self.assign_pred_modules = []
         assign_dim = int(max_num_nodes * assign_ratio)
-        self.assign_conv_first, self.assign_conv_block, self.assign_conv_last = self.build_conv_layers(
-                assign_input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
-                normalize=True)
-        assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
-        self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim, num_aggs=1)
+        for i in range(num_pooling):
+            assign_dims.append(assign_dim)
+            self.assign_conv_first, self.assign_conv_block, self.assign_conv_last = self.build_conv_layers(
+                    assign_input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
+                    normalize=True)
+            assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
+            self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim, num_aggs=1)
+
+
+            # next pooling layer
+            assign_input_dim = embedding_dim
+            assign_dim = int(assign_dim * assign_ratio)
+
+            self.assign_conv_first_modules.append(self.assign_conv_first)
+            self.assign_conv_block_modules.append(self.assign_conv_block)
+            self.assign_conv_last_modules.append(self.assign_conv_last)
+            self.assign_pred_modules.append(self.assign_pred)
 
         self.pred_model = self.build_pred_layers(self.pred_input_dim * (num_pooling+1), pred_hidden_dims, 
                 label_dim, num_aggs=self.num_aggs)
@@ -288,13 +308,14 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             embedding_mask = None
 
         out_all = []
-        self.assign_tensor = self.gcn_forward(x_a, adj, 
-                self.assign_conv_first, self.assign_conv_block, self.assign_conv_last,
-                embedding_mask)
-        # [batch_size x num_nodes x next_lvl_num_nodes]
-        self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
-        if embedding_mask is not None:
-            self.assign_tensor = self.assign_tensor * embedding_mask
+
+        #self.assign_tensor = self.gcn_forward(x_a, adj, 
+        #        self.assign_conv_first_modules[0], self.assign_conv_block_modules[0], self.assign_conv_last_modules[0],
+        #        embedding_mask)
+        ## [batch_size x num_nodes x next_lvl_num_nodes]
+        #self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
+        #if embedding_mask is not None:
+        #    self.assign_tensor = self.assign_tensor * embedding_mask
         # [batch_size x num_nodes x embedding_dim]
         embedding_tensor = self.gcn_forward(x, adj,
                 self.conv_first, self.conv_block, self.conv_last, embedding_mask)
@@ -306,18 +327,28 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             out_all.append(out)
 
         for i in range(self.num_pooling):
-            if batch_num_nodes is not None:
+            if batch_num_nodes is not None and i == 0:
                 embedding_mask = self.construct_mask(max_num_nodes, batch_num_nodes)
             else:
                 embedding_mask = None
 
+            self.assign_tensor = self.gcn_forward(x_a, adj, 
+                    self.assign_conv_first_modules[i], self.assign_conv_block_modules[i], self.assign_conv_last_modules[i],
+                    embedding_mask)
+            # [batch_size x num_nodes x next_lvl_num_nodes]
+            self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
+            if embedding_mask is not None:
+                self.assign_tensor = self.assign_tensor * embedding_mask
+
             # update pooled features and adj matrix
             x = torch.matmul(torch.transpose(self.assign_tensor, 1, 2), embedding_tensor)
             adj = torch.transpose(self.assign_tensor, 1, 2) @ adj @ self.assign_tensor
+            x_a = x
         
             embedding_tensor = self.gcn_forward(x, adj, 
                     self.conv_first_after_pool[i], self.conv_block_after_pool[i],
                     self.conv_last_after_pool[i])
+
 
             out, _ = torch.max(embedding_tensor, dim=1)
             out_all.append(out)
@@ -326,6 +357,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 out = torch.sum(embedding_tensor, dim=1)
                 out_all.append(out)
 
+
         if self.concat:
             output = torch.cat(out_all, dim=1)
         else:
@@ -333,7 +365,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         ypred = self.pred_model(output)
         return ypred
 
-    def loss(self, pred, label, adj=None, batch_num_nodes=None):
+    def loss(self, pred, label, adj=None, batch_num_nodes=None, adj_hop=1):
         ''' 
         Args:
             batch_num_nodes: numpy array of number of nodes in each graph in the minibatch.
@@ -342,7 +374,15 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         loss = super(SoftPoolingGcnEncoder, self).loss(pred, label)
         if self.linkpred:
             max_num_nodes = adj.size()[1]
-            pred_adj = self.assign_tensor @ torch.transpose(self.assign_tensor, 1, 2) 
+            pred_adj0 = self.assign_tensor @ torch.transpose(self.assign_tensor, 1, 2) 
+            tmp = pred_adj0
+            pred_adj = pred_adj0
+            for adj_pow in range(adj_hop-1):
+                tmp = tmp @ pred_adj0
+                pred_adj = pred_adj + tmp
+            pred_adj = torch.min(pred_adj, torch.Tensor(1).cuda())
+            #print('adj1', torch.sum(pred_adj0) / torch.numel(pred_adj0))
+            #print('adj2', torch.sum(pred_adj) / torch.numel(pred_adj))
             #self.link_loss = F.nll_loss(torch.log(pred_adj), adj)
             self.link_loss = -adj * torch.log(pred_adj+eps) - (1-adj) * torch.log(1-pred_adj+eps)
             if batch_num_nodes is None:
