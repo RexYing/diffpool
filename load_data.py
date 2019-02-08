@@ -47,16 +47,24 @@ def read_graphfile(datadir, dataname, max_nodes=None):
     label_has_zero = False
     filename_graphs=prefix + '_graph_labels.txt'
     graph_labels=[]
+
+    # assume that all graph labels appear in the dataset 
+    #(set of labels don't have to be consecutive)
+    label_vals = []
     with open(filename_graphs) as f:
         for line in f:
             line=line.strip("\n")
             val = int(line)
-            if val == 0:
-                label_has_zero = True
-            graph_labels.append(val - 1)
-    graph_labels = np.array(graph_labels)
-    if label_has_zero:
-        graph_labels += 1
+            #if val == 0:
+            #    label_has_zero = True
+            if val not in label_vals:
+                label_vals.append(val)
+            graph_labels.append(val)
+    #graph_labels = np.array(graph_labels)
+    label_map_to_int = {val: i for i, val in enumerate(label_vals)}
+    graph_labels = np.array([label_map_to_int[l] for l in graph_labels])
+    #if label_has_zero:
+    #    graph_labels += 1
     
     filename_adj=prefix + '_A.txt'
     adj_list={i:[] for i in range(1,len(graph_labels)+1)}    

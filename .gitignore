@@ -111,6 +111,7 @@ log/
 runs/
 vis/
 
+data/
 data/REDDIT-MULTI-12K/
 data/COLLAB
 data/PROTEINS
