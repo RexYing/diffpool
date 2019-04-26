@@ -9,6 +9,7 @@ import sklearn.metrics as metrics
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import tensorboardX
 from tensorboardX import SummaryWriter
 
 import argparse
@@ -93,8 +94,9 @@ def log_assignment(assign_tensor, writer, epoch, batch_idx):
     plt.tight_layout()
     fig.canvas.draw()
 
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    #data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    #data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    data = tensorboardX.utils.figure_to_image(fig)
     writer.add_image('assignment', data, epoch)
 
 def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx, assign_tensor=None):
@@ -114,8 +116,9 @@ def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx, assign_tensor=None
     plt.tight_layout()
     fig.canvas.draw()
 
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    #data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    #data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    data = tensorboardX.utils.figure_to_image(fig)
     writer.add_image('graphs', data, epoch)
 
     # log a label-less version
@@ -161,8 +164,9 @@ def log_graph(adj, batch_num_nodes, writer, epoch, batch_idx, assign_tensor=None
     plt.tight_layout()
     fig.canvas.draw()
 
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    #data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    #data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    data = tensorboardX.utils.figure_to_image(fig)
     writer.add_image('graphs_colored', data, epoch)
 
 
@@ -188,11 +192,12 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
     test_epochs = []
     val_accs = []
     for epoch in range(args.num_epochs):
-        begin_time = time.time()
+        total_time = 0
         avg_loss = 0.0
         model.train()
         print('Epoch: ', epoch)
         for batch_idx, data in enumerate(dataset):
+            begin_time = time.time()
             model.zero_grad()
             adj = Variable(data['adj'].float(), requires_grad=False).cuda()
             h0 = Variable(data['feats'].float(), requires_grad=False).cuda()
@@ -212,18 +217,19 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             avg_loss += loss
             #if iter % 20 == 0:
             #    print('Iter: ', iter, ', loss: ', loss.data[0])
+            elapsed = time.time() - begin_time
+            total_time += elapsed
 
             # log once per XX epochs
             if epoch % 10 == 0 and batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
                 log_assignment(model.assign_tensor, writer, epoch, writer_batch_idx)
                 log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx, model.assign_tensor)
         avg_loss /= batch_idx + 1
-        elapsed = time.time() - begin_time
         if writer is not None:
             writer.add_scalar('loss/avg_loss', avg_loss, epoch)
             if args.linkpred:
                 writer.add_scalar('loss/linkpred_loss', model.link_loss, epoch)
-        print('Avg loss: ', avg_loss, '; epoch time: ', elapsed)
+        print('Avg loss: ', avg_loss, '; epoch time: ', total_time)
         result = evaluate(dataset, model, args, name='Train', max_num_examples=100)
         train_accs.append(result['acc'])
         train_epochs.append(epoch)
