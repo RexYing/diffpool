@@ -243,17 +243,17 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         self.assign_ent = True
 
         # GC
-        self.conv_first_after_pool = []
-        self.conv_block_after_pool = []
-        self.conv_last_after_pool = []
+        self.conv_first_after_pool = nn.ModuleList()
+        self.conv_block_after_pool = nn.ModuleList()
+        self.conv_last_after_pool = nn.ModuleList()
         for i in range(num_pooling):
             # use self to register the modules in self.modules()
-            self.conv_first2, self.conv_block2, self.conv_last2 = self.build_conv_layers(
+            conv_first2, conv_block2, conv_last2 = self.build_conv_layers(
                     self.pred_input_dim, hidden_dim, embedding_dim, num_layers, 
                     add_self, normalize=True, dropout=dropout)
-            self.conv_first_after_pool.append(self.conv_first2)
-            self.conv_block_after_pool.append(self.conv_block2)
-            self.conv_last_after_pool.append(self.conv_last2)
+            self.conv_first_after_pool.append(conv_first2)
+            self.conv_block_after_pool.append(conv_block2)
+            self.conv_last_after_pool.append(conv_last2)
 
         # assignment
         assign_dims = []
@@ -262,28 +262,28 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         if assign_input_dim == -1:
             assign_input_dim = input_dim
 
-        self.assign_conv_first_modules = []
-        self.assign_conv_block_modules = []
-        self.assign_conv_last_modules = []
-        self.assign_pred_modules = []
+        self.assign_conv_first_modules = nn.ModuleList()
+        self.assign_conv_block_modules = nn.ModuleList()
+        self.assign_conv_last_modules = nn.ModuleList()
+        self.assign_pred_modules = nn.ModuleList()
         assign_dim = int(max_num_nodes * assign_ratio)
         for i in range(num_pooling):
             assign_dims.append(assign_dim)
-            self.assign_conv_first, self.assign_conv_block, self.assign_conv_last = self.build_conv_layers(
+            assign_conv_first, assign_conv_block, assign_conv_last = self.build_conv_layers(
                     assign_input_dim, assign_hidden_dim, assign_dim, assign_num_layers, add_self,
                     normalize=True)
             assign_pred_input_dim = assign_hidden_dim * (num_layers - 1) + assign_dim if concat else assign_dim
-            self.assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim, num_aggs=1)
+            assign_pred = self.build_pred_layers(assign_pred_input_dim, [], assign_dim, num_aggs=1)
 
 
             # next pooling layer
-            assign_input_dim = embedding_dim
+            assign_input_dim = self.pred_input_dim
             assign_dim = int(assign_dim * assign_ratio)
 
-            self.assign_conv_first_modules.append(self.assign_conv_first)
-            self.assign_conv_block_modules.append(self.assign_conv_block)
-            self.assign_conv_last_modules.append(self.assign_conv_last)
-            self.assign_pred_modules.append(self.assign_pred)
+            self.assign_conv_first_modules.append(assign_conv_first)
+            self.assign_conv_block_modules.append(assign_conv_block)
+            self.assign_conv_last_modules.append(assign_conv_last)
+            self.assign_pred_modules.append(assign_pred)
 
         self.pred_model = self.build_pred_layers(self.pred_input_dim * (num_pooling+1), pred_hidden_dims, 
                 label_dim, num_aggs=self.num_aggs)
@@ -336,7 +336,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                     self.assign_conv_first_modules[i], self.assign_conv_block_modules[i], self.assign_conv_last_modules[i],
                     embedding_mask)
             # [batch_size x num_nodes x next_lvl_num_nodes]
-            self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred(self.assign_tensor))
+            self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred_modules[i](self.assign_tensor))
             if embedding_mask is not None:
                 self.assign_tensor = self.assign_tensor * embedding_mask
 

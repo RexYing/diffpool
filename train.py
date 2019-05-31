@@ -223,7 +223,8 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             # log once per XX epochs
             if epoch % 10 == 0 and batch_idx == len(dataset) // 2 and args.method == 'soft-assign' and writer is not None:
                 log_assignment(model.assign_tensor, writer, epoch, writer_batch_idx)
-                log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx, model.assign_tensor)
+                if args.log_graph:
+                    log_graph(adj, batch_num_nodes, writer, epoch, writer_batch_idx, model.assign_tensor)
         avg_loss /= batch_idx + 1
         if writer is not None:
             writer.add_scalar('loss/avg_loss', avg_loss, epoch)
@@ -584,6 +585,9 @@ def arg_parse():
     parser.add_argument('--nobias', dest='bias', action='store_const',
             const=False, default=True,
             help='Whether to add bias. Default to True.')
+    parser.add_argument('--no-log-graph', dest='log_graph', action='store_const',
+            const=False, default=True,
+            help='Whether disable log graph')
 
     parser.add_argument('--method', dest='method',
             help='Method. Possible values: base, base-set2set, soft-assign')
