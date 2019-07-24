@@ -360,7 +360,7 @@ def syn_community1v2(args, writer=None, export_graphs=False):
                 args.num_gc_layers, bn=args.bn).cuda()
     else:
         print('Method: base')
-        model = encoders.GcnEncoderGraph(input_dim, args.hidden_dim, args.output_dim, 2,
+        model = encoders.GcnEncoderGraph(max_num_nodes, input_dim, args.hidden_dim, args.output_dim, 2,
                 args.num_gc_layers, bn=args.bn).cuda()
 
     train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=test_dataset,
@@ -511,7 +511,7 @@ def benchmark_task_val(args, writer=None, feat='node-label'):
         else:
             print('Method: base')
             model = encoders.GcnEncoderGraph(
-                    input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
+                    max_num_nodes, input_dim, args.hidden_dim, args.output_dim, args.num_classes, 
                     args.num_gc_layers, bn=args.bn, dropout=args.dropout, args=args).cuda()
 
         _, val_accs = train(train_dataset, model, args, val_dataset=val_dataset, test_dataset=None,

@@ -40,12 +40,17 @@ class GraphConv(nn.Module):
         return y
 
 class GcnEncoderGraph(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
+    def __init__(self, max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim, num_layers,
             pred_hidden_dims=[], concat=True, bn=True, dropout=0.0, args=None):
         super(GcnEncoderGraph, self).__init__()
         self.concat = concat
         add_self = not concat
         self.bn = bn
+        bn_layers = []
+        for _ in range(num_layers - 1):
+            bn_layers.append(nn.BatchNorm1d(max_num_nodes))
+        self.bn_layers = nn.ModuleList(bn_layers)
+
         self.num_layers = num_layers
         self.num_aggs=1
 
@@ -111,23 +116,27 @@ class GcnEncoderGraph(nn.Module):
             out_tensor[i, :batch_num_nodes[i]] = mask
         return out_tensor.unsqueeze(2).cuda()
 
-    def apply_bn(self, x):
+    def apply_bn(self, x, layer):
         ''' Batch normalization of 3D tensor x
         '''
-        bn_module = nn.BatchNorm1d(x.size()[1]).cuda()
+        bn_module = self.bn_layers[layer]
         return bn_module(x)
 
-    def gcn_forward(self, x, adj, conv_first, conv_block, conv_last, embedding_mask=None):
+    def gcn_forward(self, x, adj, conv_first, conv_block, conv_last, embedding_mask=None,
+            bn_layers=None, nobn=False):
 
         ''' Perform forward prop with graph convolution.
         Returns:
             Embedding matrix with dimension [batch_size x num_nodes x embedding]
         '''
 
+        if self.bn and bn_layers is None:
+            bn_layers = self.bn_layers
+
         x = conv_first(x, adj)
         x = self.act(x)
-        if self.bn:
-            x = self.apply_bn(x)
+        if self.bn and not nobn:
+            x = bn_layers[0](x)
         x_all = [x]
         #out_all = []
         #out, _ = torch.max(x, dim=1)
@@ -135,8 +144,8 @@ class GcnEncoderGraph(nn.Module):
         for i in range(len(conv_block)):
             x = conv_block[i](x,adj)
             x = self.act(x)
-            if self.bn:
-                x = self.apply_bn(x)
+            if self.bn and not nobn:
+                x = bn_layers[i+1](x)
             x_all.append(x)
         x = conv_last(x,adj)
         x_all.append(x)
@@ -146,7 +155,7 @@ class GcnEncoderGraph(nn.Module):
             x_tensor = x_tensor * embedding_mask
         return x_tensor
 
-    def forward(self, x, adj, batch_num_nodes=None, **kwargs):
+    def forward(self, x, adj, bn_layers=None, batch_num_nodes=None, nobn=False, **kwargs):
         # mask
         max_num_nodes = adj.size()[1]
         if batch_num_nodes is not None:
@@ -154,19 +163,21 @@ class GcnEncoderGraph(nn.Module):
         else:
             self.embedding_mask = None
 
+        if self.bn and bn_layers is None:
+            bn_layers = self.bn_layers
         # conv
         x = self.conv_first(x, adj)
         x = self.act(x)
-        if self.bn:
-            x = self.apply_bn(x)
+        if self.bn and not nobn:
+            x = bn_layers[0](x)
         out_all = []
         out, _ = torch.max(x, dim=1)
         out_all.append(out)
         for i in range(self.num_layers-2):
             x = self.conv_block[i](x,adj)
             x = self.act(x)
-            if self.bn:
-                x = self.apply_bn(x)
+            if self.bn and not nobn:
+                x = bn_layers[i+1](x)
             out,_ = torch.max(x, dim=1)
             out_all.append(out)
             if self.num_aggs == 2:
@@ -216,7 +227,8 @@ class GcnSet2SetEncoder(GcnEncoderGraph):
             embedding_mask = None
 
         embedding_tensor = self.gcn_forward(x, adj,
-                self.conv_first, self.conv_block, self.conv_last, embedding_mask)
+                self.conv_first, self.conv_block, self.conv_last, embedding_mask,
+                bn_layers=self.bn_layers)
         out = self.s2s(embedding_tensor)
         #out, _ = torch.max(embedding_tensor, dim=1)
         ypred = self.pred_model(out)
@@ -235,7 +247,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             linkpred: flag to turn on link prediction side objective
         '''
 
-        super(SoftPoolingGcnEncoder, self).__init__(input_dim, hidden_dim, embedding_dim, label_dim,
+        super(SoftPoolingGcnEncoder, self).__init__(max_num_nodes, input_dim, hidden_dim, embedding_dim, label_dim,
                 num_layers, pred_hidden_dims=pred_hidden_dims, concat=concat, args=args)
         add_self = not concat
         self.num_pooling = num_pooling
@@ -246,6 +258,8 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         self.conv_first_after_pool = nn.ModuleList()
         self.conv_block_after_pool = nn.ModuleList()
         self.conv_last_after_pool = nn.ModuleList()
+        self.pooling_bn_layers = nn.ModuleList()
+        num_nodes = max_num_nodes
         for i in range(num_pooling):
             # use self to register the modules in self.modules()
             conv_first2, conv_block2, conv_last2 = self.build_conv_layers(
@@ -254,6 +268,12 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             self.conv_first_after_pool.append(conv_first2)
             self.conv_block_after_pool.append(conv_block2)
             self.conv_last_after_pool.append(conv_last2)
+            self.bn_layers.append(nn.ModuleList())
+            num_nodes = int(max_num_nodes * assign_ratio)
+            bn_layers = nn.ModuleList()
+            for _ in range(num_layers - 1):
+                bn_layers.append(nn.BatchNorm1d(num_nodes))
+            self.pooling_bn_layers.append(bn_layers)
 
         # assignment
         assign_dims = []
@@ -334,7 +354,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
 
             self.assign_tensor = self.gcn_forward(x_a, adj, 
                     self.assign_conv_first_modules[i], self.assign_conv_block_modules[i], self.assign_conv_last_modules[i],
-                    embedding_mask)
+                    embedding_mask, nobn=True)
             # [batch_size x num_nodes x next_lvl_num_nodes]
             self.assign_tensor = nn.Softmax(dim=-1)(self.assign_pred_modules[i](self.assign_tensor))
             if embedding_mask is not None:
@@ -347,7 +367,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         
             embedding_tensor = self.gcn_forward(x, adj, 
                     self.conv_first_after_pool[i], self.conv_block_after_pool[i],
-                    self.conv_last_after_pool[i])
+                    self.conv_last_after_pool[i], bn_layers=self.pooling_bn_layers[i])
 
 
             out, _ = torch.max(embedding_tensor, dim=1)
