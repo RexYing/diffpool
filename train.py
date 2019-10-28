@@ -206,12 +206,9 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             assign_input = Variable(data['assign_feats'].float(), requires_grad=False).cuda()
 
             ypred = model(h0, adj, batch_num_nodes, assign_x=assign_input)
-            if not args.method == 'soft-assign' or not args.linkpred:
-                loss = model.loss(ypred, label)
-            else:
-                loss = model.loss(ypred, label, adj, batch_num_nodes)
+            loss = model.loss(ypred, label, adj, batch_num_nodes)
             loss.backward()
-            nn.utils.clip_grad_norm(model.parameters(), args.clip)
+            nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             optimizer.step()
             iter += 1
             avg_loss += loss
@@ -437,11 +434,11 @@ def benchmark_task(args, writer=None, feat='node-label'):
     if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
         print('Using node features')
         input_dim = graphs[0].graph['feat_dim']
-    elif feat == 'node-label' and 'label' in graphs[0].node[0]:
+    elif feat == 'node-label' and 'label' in graphs[0].nodes[0]:
         print('Using node labels')
         for G in graphs:
             for u in G.nodes():
-                G.node[u]['feat'] = np.array(G.node[u]['label'])
+                G.nodes[u]['feat'] = np.array(G.nodes[u]['label'])
     else:
         print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
@@ -481,11 +478,11 @@ def benchmark_task_val(args, writer=None, feat='node-label'):
     if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
         print('Using node features')
         input_dim = graphs[0].graph['feat_dim']
-    elif feat == 'node-label' and 'label' in graphs[0].node[0]:
+    elif feat == 'node-label' and 'label' in graphs[0].nodes[0]:
         print('Using node labels')
         for G in graphs:
             for u in G.nodes():
-                G.node[u]['feat'] = np.array(G.node[u]['label'])
+                G.nodes[u]['feat'] = np.array(G.nodes[u]['label'])
     else:
         print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))
@@ -543,6 +540,8 @@ def arg_parse():
     parser.add_argument('--linkpred', dest='linkpred', action='store_const',
             const=True, default=False,
             help='Whether link prediction side objective is used')
+    parser.add_argument('--ent_reg_weight', type=float, default=0.0,
+            help='The weight for entropy regularization (default to 0).')
 
 
     parser.add_argument('--datadir', dest='datadir',

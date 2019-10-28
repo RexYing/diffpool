@@ -73,9 +73,9 @@ class GcnEncoderGraph(nn.Module):
 
         for m in self.modules():
             if isinstance(m, GraphConv):
-                m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
+                init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain('relu'))
                 if m.bias is not None:
-                    m.bias.data = init.constant(m.bias.data, 0.0)
+                    init.constant_(m.bias.data, 0.0)
 
     def build_conv_layers(self, input_dim, hidden_dim, embedding_dim, num_layers, add_self,
             normalize=False, dropout=0.0):
@@ -252,6 +252,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         add_self = not concat
         self.num_pooling = num_pooling
         self.linkpred = linkpred
+        self.ent_reg_weight = args.ent_reg_weight
         self.assign_ent = True
 
         # GC
@@ -310,9 +311,9 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
 
         for m in self.modules():
             if isinstance(m, GraphConv):
-                m.weight.data = init.xavier_uniform(m.weight.data, gain=nn.init.calculate_gain('relu'))
+                init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain('relu'))
                 if m.bias is not None:
-                    m.bias.data = init.constant(m.bias.data, 0.0)
+                    init.constant_(m.bias.data, 0.0)
 
     def forward(self, x, adj, batch_num_nodes, **kwargs):
         if 'assign_x' in kwargs:
@@ -392,30 +393,43 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
         '''
         eps = 1e-7
         loss = super(SoftPoolingGcnEncoder, self).loss(pred, label)
-        if self.linkpred:
-            max_num_nodes = adj.size()[1]
+        max_num_nodes = adj.size()[1]
+        if self.linkpred or self.ent_reg_weight > 0:
+            # precompute
             pred_adj0 = self.assign_tensor @ torch.transpose(self.assign_tensor, 1, 2) 
+            if batch_num_nodes is None:
+                num_entries = max_num_nodes * max_num_nodes * adj.size()[0]
+                print('Warning: calculating link pred loss / entropy loss without masking')
+            else:
+                num_entries = np.sum(batch_num_nodes * batch_num_nodes)
+                embedding_mask = self.construct_mask(max_num_nodes, batch_num_nodes)
+                adj_mask = embedding_mask @ torch.transpose(embedding_mask, 1, 2)
+
+        if self.linkpred:
             tmp = pred_adj0
             pred_adj = pred_adj0
             for adj_pow in range(adj_hop-1):
                 tmp = tmp @ pred_adj0
                 pred_adj = pred_adj + tmp
-            pred_adj = torch.min(pred_adj, torch.Tensor(1).cuda())
-            #print('adj1', torch.sum(pred_adj0) / torch.numel(pred_adj0))
-            #print('adj2', torch.sum(pred_adj) / torch.numel(pred_adj))
-            #self.link_loss = F.nll_loss(torch.log(pred_adj), adj)
+            pred_adj = torch.min(pred_adj, torch.Tensor([1,]).cuda())
+
+            # since the assignment values are interpreted as proportion of node belonging to certain
+            # cluster, the values are in [0,1], and cross entropy is more stable.
             self.link_loss = -adj * torch.log(pred_adj+eps) - (1-adj) * torch.log(1-pred_adj+eps)
-            if batch_num_nodes is None:
-                num_entries = max_num_nodes * max_num_nodes * adj.size()[0]
-                print('Warning: calculating link pred loss without masking')
-            else:
-                num_entries = np.sum(batch_num_nodes * batch_num_nodes)
-                embedding_mask = self.construct_mask(max_num_nodes, batch_num_nodes)
-                adj_mask = embedding_mask @ torch.transpose(embedding_mask, 1, 2)
+            # apply mask
+            if batch_num_nodes is not None:
                 self.link_loss[1-adj_mask.byte()] = 0.0
 
             self.link_loss = torch.sum(self.link_loss) / float(num_entries)
-            #print('linkloss: ', self.link_loss)
-            return loss + self.link_loss
+            loss = loss + self.link_loss
+
+        if self.ent_reg_weight > 0:
+            pred_adj0 = self.assign_tensor @ torch.transpose(self.assign_tensor, 1, 2) 
+            ent_loss = -pred_adj0 * torch.log(pred_adj0+eps) - (1 - pred_adj0) * torch.log(1-pred_adj0+eps)
+            if batch_num_nodes is not None:
+                ent_loss[1-adj_mask.byte()] = 0.0
+            self.ent_loss = torch.sum(ent_loss) * self.ent_reg_weight / float(num_entries)
+            loss = loss + self.ent_loss
+
         return loss
 

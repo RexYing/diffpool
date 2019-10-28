@@ -20,7 +20,7 @@ class GraphSampler(torch.utils.data.Dataset):
             self.max_num_nodes = max_num_nodes
 
         #if features == 'default':
-        self.feat_dim = G_list[0].node[0]['feat'].shape[0]
+        self.feat_dim = G_list[0].nodes[0]['feat'].shape[0]
 
         for G in G_list:
             adj = np.array(nx.to_numpy_matrix(G))
@@ -34,7 +34,7 @@ class GraphSampler(torch.utils.data.Dataset):
             if features == 'default':
                 f = np.zeros((self.max_num_nodes, self.feat_dim), dtype=float)
                 for i,u in enumerate(G.nodes()):
-                    f[i,:] = G.node[u]['feat']
+                    f[i,:] = G.nodes[u]['feat']
                 self.feature_all.append(f)
             elif features == 'id':
                 self.feature_all.append(np.identity(self.max_num_nodes))
@@ -54,7 +54,7 @@ class GraphSampler(torch.utils.data.Dataset):
 
                 f = np.zeros((self.max_num_nodes, self.feat_dim), dtype=float)
                 for i,u in enumerate(G.nodes()):
-                    f[i,:] = G.node[u]['feat']
+                    f[i,:] = G.nodes[u]['feat']
 
                 feat = np.concatenate((feat, f), axis=1)
 
@@ -74,8 +74,8 @@ class GraphSampler(torch.utils.data.Dataset):
                                                     'constant'),
                                              axis=1)
                 g_feat = np.hstack([degs, clusterings])
-                if 'feat' in G.node[0]:
-                    node_feats = np.array([G.node[i]['feat'] for i in range(G.number_of_nodes())])
+                if 'feat' in G.nodes[0]:
+                    node_feats = np.array([G.nodes[i]['feat'] for i in range(G.number_of_nodes())])
                     node_feats = np.pad(node_feats, ((0, self.max_num_nodes - G.number_of_nodes()), (0, 0)),
                                         'constant')
                     g_feat = np.hstack([g_feat, node_feats])
