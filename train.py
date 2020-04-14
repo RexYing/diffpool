@@ -477,15 +477,17 @@ def benchmark_task(args, writer=None, feat='node-label'):
 def benchmark_task_val(args, writer=None, feat='node-label'):
     all_vals = []
     graphs = load_data.read_graphfile(args.datadir, args.bmname, max_nodes=args.max_nodes)
+
+    example_node = util.node_dict(graphs[0])[0]
     
     if feat == 'node-feat' and 'feat_dim' in graphs[0].graph:
         print('Using node features')
         input_dim = graphs[0].graph['feat_dim']
-    elif feat == 'node-label' and 'label' in graphs[0].node[0]:
+    elif feat == 'node-label' and 'label' in example_node:
         print('Using node labels')
         for G in graphs:
             for u in G.nodes():
-                G.node[u]['feat'] = np.array(G.node[u]['label'])
+                util.node_dict(G)[u]['feat'] = np.array(util.node_dict(G)[u]['label'])
     else:
         print('Using constant labels')
         featgen_const = featgen.ConstFeatureGen(np.ones(args.input_dim, dtype=float))

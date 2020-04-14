@@ -4,6 +4,8 @@ import scipy as sc
 import os
 import re
 
+import util
+
 def read_graphfile(datadir, dataname, max_nodes=None):
     ''' Read data from https://ls11-www.cs.tu-dortmund.de/staff/morris/graphkerneldatasets
         graph index starts with 1 in file
@@ -89,28 +91,23 @@ def read_graphfile(datadir, dataname, max_nodes=None):
       
         # add features and labels
         G.graph['label'] = graph_labels[i-1]
-        for u in G.nodes():
+        for u in util.node_iter(G):
             if len(node_labels) > 0:
                 node_label_one_hot = [0] * num_unique_node_labels
                 node_label = node_labels[u-1]
                 node_label_one_hot[node_label] = 1
-                G.node[u]['label'] = node_label_one_hot
+                util.node_dict(G)[u]['label'] = node_label_one_hot
             if len(node_attrs) > 0:
-                G.node[u]['feat'] = node_attrs[u-1]
+                util.node_dict(G)[u]['feat'] = node_attrs[u-1]
         if len(node_attrs) > 0:
             G.graph['feat_dim'] = node_attrs[0].shape[0]
 
         # relabeling
         mapping={}
         it=0
-        if float(nx.__version__)<2.0:
-            for n in G.nodes():
-                mapping[n]=it
-                it+=1
-        else:
-            for n in G.nodes:
-                mapping[n]=it
-                it+=1
+        for n in util.node_iter(G):
+            mapping[n]=it
+            it+=1
             
         # indexed from 0
         graphs.append(nx.relabel_nodes(G, mapping))

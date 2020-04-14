@@ -3,6 +3,23 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
+
+# ---- NetworkX compatibility
+def node_iter(G):
+    if float(nx.__version__)<2.0:
+        return G.nodes()
+    else:
+        return G.nodes
+
+def node_dict(G):
+    if float(nx.__version__)>2.1:
+        node_dict = G.nodes
+    else:
+        node_dict = G.node
+    return node_dict
+# ---------------------------
+
+
 def imsave(fname, arr, vmin=None, vmax=None, cmap=None, format=None, origin=None):
     from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
     from matplotlib.figure import Figure
