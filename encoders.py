@@ -190,7 +190,7 @@ class GcnEncoderGraph(nn.Module):
     def loss(self, pred, label, type='softmax'):
         # softmax + CE
         if type == 'softmax':
-            return F.cross_entropy(pred, label, size_average=True)
+            return F.cross_entropy(pred, label, reduction='mean')
         elif type == 'margin':
             batch_size = pred.size()[0]
             label_onehot = torch.zeros(batch_size, self.label_dim).long().cuda()
@@ -380,7 +380,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
             for adj_pow in range(adj_hop-1):
                 tmp = tmp @ pred_adj0
                 pred_adj = pred_adj + tmp
-            pred_adj = torch.min(pred_adj, torch.ones(1).cuda())
+            pred_adj = torch.min(pred_adj, torch.ones(1, dtype=pred_adj.dtype).cuda())
             #print('adj1', torch.sum(pred_adj0) / torch.numel(pred_adj0))
             #print('adj2', torch.sum(pred_adj) / torch.numel(pred_adj))
             #self.link_loss = F.nll_loss(torch.log(pred_adj), adj)
@@ -392,7 +392,7 @@ class SoftPoolingGcnEncoder(GcnEncoderGraph):
                 num_entries = np.sum(batch_num_nodes * batch_num_nodes)
                 embedding_mask = self.construct_mask(max_num_nodes, batch_num_nodes)
                 adj_mask = embedding_mask @ torch.transpose(embedding_mask, 1, 2)
-                self.link_loss[1-adj_mask.byte()] = 0.0
+                self.link_loss[(1-adj_mask).bool()] = 0.0
 
             self.link_loss = torch.sum(self.link_loss) / float(num_entries)
             #print('linkloss: ', self.link_loss)

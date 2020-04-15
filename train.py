@@ -211,7 +211,7 @@ def train(dataset, model, args, same_feat=True, val_dataset=None, test_dataset=N
             else:
                 loss = model.loss(ypred, label, adj, batch_num_nodes)
             loss.backward()
-            nn.utils.clip_grad_norm(model.parameters(), args.clip)
+            nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             optimizer.step()
             iter += 1
             avg_loss += loss
