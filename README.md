@@ -21,3 +21,15 @@ achieving a new state-of-the-art on four out of five benchmark data sets.
 
 Paper link: https://arxiv.org/pdf/1806.08804.pdf
 
+
+
+## Other Implementations
+Different implementations of DIFFPOOL can be found in the follwing libraries. Note that the hyperparameters may be different and therefore the results would be different from the paper reported ones.
+
+
+- *tf_geometric*: [example](https://github.com/CrawlScript/tf_geometric/blob/master/demo/demo_diff_pool.py)
+- *Deep Graph Library*: [example](https://github.com/dmlc/dgl/tree/master/examples/pytorch/diffpool).
+- *PyTorch Geometric*: [example](https://github.com/rusty1s/pytorch_geometric/blob/master/examples/proteins_diff_pool.py). 
+- *Spektral*: [doc](https://graphneural.network/layers/pooling/#diffpool)
+
+
