@@ -28,6 +28,11 @@ import load_data
 import util
 
 
+if torch.cuda.is_available():
+    print("GPU is available!")
+else:
+    print("GPU is not available.")
+
 def evaluate(dataset, model, args, name='Validation', max_num_examples=None):
     model.eval()
 
